@@ -1,0 +1,32 @@
+/* Stil de bază pentru butoanele din sidebar */
+.sidebar-btn {
+    transition: background-color 0.2s ease-in-out, color 0.2s ease-in-out;
+    color: #4b5563; /* gray-600 */
+}
+
+/* Stil pentru butonul activ/selectat */
+.sidebar-btn.active-tab {
+    background-color: #e0f2fe; /* light blue */
+    color: #0284c7; /* sky-700 */
+    font-weight: 500;
+}
+
+/* Stil la hover pentru butoanele inactive */
+.sidebar-btn:not(.active-tab):hover {
+    background-color: #f3f4f6; /* gray-100 */
+}
+
+/* Clasa pentru a ascunde elemente (folosită de JS) */
+.hidden {
+    display: none;
+}
+
+/* Animația de rotație pentru săgeata din secțiunile collapsible */
+.collapsible-header .arrow {
+    transition: transform 0.3s ease;
+}
+
+/* Starea "deschisă" a săgeții */
+.collapsible-header.open .arrow {
+    transform: rotate(0deg);
+}
