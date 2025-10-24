@@ -87,6 +87,32 @@ export async function saveProductDetails(asin, updatedData) {
     // Creăm o copie profundă pentru a nu modifica obiectul original din state/cache
     const processedData = JSON.parse(JSON.stringify(updatedData));
 
+    // --- ÎNCEPUTUL REZOLVĂRII PENTRU EROAREA 'non-object' (ADĂUGAT) ---
+    
+    // 1. Verifică și corectează câmpul 'features' de la rădăcină (pentru 'origin')
+    // Dacă 'features' este null, undefined, sau orice altceva ce nu e un obiect,
+    // îl setăm ca un obiect gol '{}'.
+    if (!processedData.features || typeof processedData.features !== 'object') {
+        processedData.features = {};
+    }
+
+    // 2. Verifică și corectează câmpul 'features' pentru fiecare traducere din 'other_versions'
+    if (processedData.other_versions) {
+        for (const langCode in processedData.other_versions) {
+            const version = processedData.other_versions[langCode];
+            
+            // Asigură-te că versiunea în sine este un obiect valid
+            if (version && typeof version === 'object') {
+                // Dacă 'features' lipsește, este null sau nu este un obiect, îl setăm ca '{}'
+                if (!version.features || typeof version.features !== 'object') {
+                    version.features = {};
+                }
+            }
+        }
+    }
+    // --- SFÂRȘITUL REZOLVĂRII ---
+
+
     // Procesează titlul și descrierea principală (dacă există)
     if (processedData.title) {
         processedData.title = makeQueryFriendly(processedData.title);
@@ -99,10 +125,11 @@ export async function saveProductDetails(asin, updatedData) {
     if (processedData.other_versions) {
         for (const langCode in processedData.other_versions) {
             const version = processedData.other_versions[langCode];
-            if (version.title) {
+            // Verificăm dacă 'version' există înainte de a accesa proprietățile
+            if (version && version.title) {
                 version.title = makeQueryFriendly(version.title);
             }
-            if (version.description) {
+            if (version && version.description) {
                 version.description = makeQueryFriendly(version.description);
             }
         }
@@ -112,7 +139,7 @@ export async function saveProductDetails(asin, updatedData) {
     // Trimitem datele procesate
     const payload = {
         asin,
-        updatedData: processedData // Folosim datele procesate
+        updatedData: processedData // Folosim datele procesate și corectate
     };
 
     try {
