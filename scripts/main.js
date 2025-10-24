@@ -417,7 +417,8 @@ document.addEventListener('DOMContentLoaded', () => {
                                 </div>
                                 <input id="product-asin" class="mt-1 block w-full bg-gray-100 p-2 border-0 rounded-md text-gray-700" type="text" value="${product.asin}" readonly>
                             </div>
-                            </div>
+
+                        </div>
                     </div>
                     
                     <div class="lg:col-span-2 bg-white rounded-xl shadow-sm">
@@ -795,7 +796,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 await renderView('produse', { commandId: state.currentCommandId, manifestSKU: state.currentManifestSKU });
             }
             
-            // <-- MODIFICARE: Logica pentru butonul "edit-asin" -->
             if (action === 'edit-asin') {
                 const productsku = actionButton.dataset.productsku;
                 const oldAsin = actionButton.dataset.oldAsin;
@@ -812,11 +812,14 @@ document.addEventListener('DOMContentLoaded', () => {
                     return;
                 }
 
+                // <-- MODIFICARE: Am adăugat orderId în payload -->
                 const payload = {
                     productsku: productsku,
                     asin_vechi: oldAsin,
-                    asin_nou: newAsin.trim()
+                    asin_nou: newAsin.trim(),
+                    orderId: state.currentCommandId 
                 };
+                // <-- SFÂRȘIT MODIFICARE -->
 
                 try {
                     const response = await fetch(ASIN_UPDATE_WEBHOOK_URL, {
@@ -832,9 +835,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     const result = await response.json();
                     if (result.status === 'success') {
                         alert("ASIN-ul a fost actualizat cu succes! Se reîncarcă datele...");
-                        // 1. Re-sincronizează datele comenzii (care acum conțin noul ASIN)
                         await fetchDataAndSyncState();
-                        // 2. Re-randează pagina de produs, care va folosi noul ASIN pentru a lua detalii
                         await renderView('produs-detaliu', { 
                             commandId: state.currentCommandId, 
                             productId: state.currentProductId 
@@ -847,7 +848,6 @@ document.addEventListener('DOMContentLoaded', () => {
                     alert(`A apărut o eroare de rețea: ${error.message}`);
                 }
             }
-            // <-- SFÂRȘIT MODIFICARE -->
 
             if (action === 'delete-image') {
                 const imageSrc = actionButton.dataset.imageSrc;
