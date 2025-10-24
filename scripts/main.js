@@ -8,6 +8,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const COMPETITION_WEBHOOK_URL = 'https://automatizare.comandat.ro/webhook/db241e9f-fe67-40bf-89ae-d06f13b90d09';
     // --- NOU: URL pentru generare titlu ---
     const TITLE_GENERATION_WEBHOOK_URL = 'https://automatizare.comandat.ro/webhook/0bc8e16e-2ba8-4c3d-ba66-9eb8898ac0ef'; 
+    // --- NOU: URL pentru update ASIN ---
+    const ASIN_UPDATE_WEBHOOK_URL = 'https://automatizare.comandat.ro/webhook/5f107bd7-cc2b-40b7-8bbf-5e3a48667405';
+
 
     const state = {
         currentCommandId: null,
@@ -19,9 +22,9 @@ document.addEventListener('DOMContentLoaded', () => {
         sortableInstance: null,
         competitionDataCache: null, 
         productScrollPosition: 0,
-        currentSearchQuery: '', // <-- MODIFICARE: Stare pentru căutare
-        currentView: 'comenzi', // <-- MODIFICARE: Stare pentru view-ul curent
-        searchTimeout: null     // <-- MODIFICARE: Pentru optimizare (debounce)
+        currentSearchQuery: '', 
+        currentView: 'comenzi', 
+        searchTimeout: null     
     };
 
     const languages = {
@@ -41,7 +44,6 @@ document.addEventListener('DOMContentLoaded', () => {
         languageNameToCodeMap[name.toLowerCase()] = code.toUpperCase();
     }
 
-    // --- MODIFICARE: Funcție helper pentru distanța Levenshtein ---
     function getLevenshteinDistance(a, b) {
         if (a.length === 0) return b.length;
         if (b.length === 0) return a.length;
@@ -64,35 +66,28 @@ document.addEventListener('DOMContentLoaded', () => {
         return matrix[b.length][a.length];
     }
 
-    // --- MODIFICARE: Funcția principală de fuzzy search ---
     function fuzzySearch(query, target) {
-        if (!query) return true; // Căutarea goală potrivește tot
-        if (!target) return false; // Nu există țintă
+        if (!query) return true; 
+        if (!target) return false; 
 
         const queryWords = query.toLowerCase().split(' ').filter(w => w.length > 0);
         const targetText = target.toLowerCase();
         const targetWords = targetText.split(' ').filter(w => w.length > 0);
         
-        // Adăugăm textul complet ca un "cuvânt" pentru a potrivi ASIN-uri sau potriviri parțiale
         targetWords.push(targetText);
 
         return queryWords.every(queryWord => {
-            // Verificăm dacă acest cuvânt din căutare se potrivește (fuzzy) cu *oricare* cuvânt țintă
             return targetWords.some(targetWord => {
                 const distance = getLevenshteinDistance(queryWord, targetWord);
                 
-                // Setăm o toleranță. Ex: 1 eroare la 3-4 litere, 2 erori la 5+ litere
                 let tolerance = 0;
-                if (queryWord.length <= 2) tolerance = 0; // "pxi" vs "pix" (dist 1)
-                else if (queryWord.length <= 4) tolerance = 1; // "avse" vs "vase" (dist 1)
-                else tolerance = 2; // "masinaa" vs "masina" (dist 1)
+                if (queryWord.length <= 2) tolerance = 0; 
+                else if (queryWord.length <= 4) tolerance = 1; 
+                else tolerance = 2; 
 
-                // Verificăm și potrivirea simplă (includes) pentru ASIN-uri sau părți de cuvinte
                 if (targetWord.includes(queryWord)) {
                     return true;
                 }
-
-                // Verificăm distanța
                 return distance <= tolerance;
             });
         });
@@ -254,7 +249,6 @@ document.addEventListener('DOMContentLoaded', () => {
         },
         import: () => `<div class="p-6 sm:p-8"><h2 class="text-3xl font-bold text-gray-800 mb-6">Import Comandă Nouă</h2><div class="max-w-md bg-white p-8 rounded-lg shadow-md"><form id="upload-form"><div class="mb-5"><label for="zip-file" class="block mb-2 text-sm font-medium">Manifest (.zip):</label><input type="file" id="zip-file" name="zipFile" accept=".zip" required class="w-full text-sm border-gray-300 rounded-lg cursor-pointer bg-gray-50"></div><div class="mb-6"><label for="pdf-file" class="block mb-2 text-sm font-medium">Factura (.pdf):</label><input type="file" id="pdf-file" name="pdfFile" accept=".pdf" required class="w-full text-sm border-gray-300 rounded-lg cursor-pointer bg-gray-50"></div><p id="upload-status" class="mt-4 text-center text-sm font-medium min-h-[20px]"></p><button id="upload-button" type="submit" class="w-full mt-2 flex justify-center items-center px-4 py-3 text-lg font-bold text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:bg-blue-300"><span class="button-text">Trimite fișierele 🚀</span><div class="button-loader hidden w-6 h-6 border-4 border-white border-t-transparent rounded-full animate-spin"></div></button></form></div></div>`,
         
-        // --- MODIFICARE: Adăugat bara de căutare în antet ---
         paleti: (command, details) => {
             const paleti = {};
             command.products.forEach(p => {
@@ -288,7 +282,6 @@ document.addEventListener('DOMContentLoaded', () => {
             <div class="p-6 sm:p-8"><div class="flex flex-wrap gap-4">${noResultsHTML}</div></div>`;
         },
 
-        // --- MODIFICARE: Adăugat bara de căutare în antet ---
         produse: (command, details, manifestSKU) => {
              const productsToShow = command.products.filter(p => {
                  const sku = p.manifestsku || 'No ManifestSKU';
@@ -413,8 +406,18 @@ document.addEventListener('DOMContentLoaded', () => {
                         <div class="bg-white p-4 rounded-xl shadow-sm space-y-4">
                             <div><label class="text-sm font-medium text-gray-500">Brand</label><input id="product-brand" class="mt-1 block w-full bg-transparent p-0 border-0 border-b-2" type="text" value="${details.brand || ''}"></div>
                             <div><label class="text-sm font-medium text-gray-500">Preț estimat</label><input id="product-price" class="mt-1 block w-full bg-transparent p-0 border-0 border-b-2" type="text" value="${details.price || ''}"></div>
-                            <div><label class="text-sm font-medium text-gray-500">ASIN</label><input id="product-asin" class="mt-1 block w-full bg-transparent p-0 border-0 border-b-2" type="text" value="${product.asin}" readonly></div>
-                        </div>
+                            
+                            <div>
+                                <div class="flex justify-between items-center">
+                                    <label for="product-asin" class="text-sm font-medium text-gray-500">ASIN</label>
+                                    <button data-action="edit-asin" data-productsku="${product.id}" data-old-asin="${product.asin}" 
+                                            class="px-3 py-1 text-xs font-semibold text-blue-600 bg-blue-100 rounded-full hover:bg-blue-200 transition-colors">
+                                        Editează ASIN
+                                    </button>
+                                </div>
+                                <input id="product-asin" class="mt-1 block w-full bg-gray-100 p-2 border-0 rounded-md text-gray-700" type="text" value="${product.asin}" readonly>
+                            </div>
+                            </div>
                     </div>
                     
                     <div class="lg:col-span-2 bg-white rounded-xl shadow-sm">
@@ -576,7 +579,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     async function renderView(viewId, context = {}) {
-        state.currentView = viewId; // <-- MODIFICARE: Setăm view-ul curent
+        state.currentView = viewId; 
         let html = '';
         let product = null; 
         mainContent.innerHTML = `<div class="p-8 text-center text-gray-500">Se încarcă...</div>`;
@@ -595,7 +598,6 @@ document.addEventListener('DOMContentLoaded', () => {
                         const asinsForPaleti = commandForPaleti.products.map(p => p.asin);
                         const detailsForPaleti = await fetchProductDetailsInBulk(asinsForPaleti);
 
-                        // --- MODIFICARE: Filtrare bazată pe state.currentSearchQuery ---
                         let commandToRender = commandForPaleti;
                         const query = state.currentSearchQuery.toLowerCase().trim();
                         if (query) {
@@ -606,7 +608,6 @@ document.addEventListener('DOMContentLoaded', () => {
                             commandToRender = { ...commandForPaleti, products: filteredProducts };
                         }
                         html = templates.paleti(commandToRender, detailsForPaleti);
-                        // --- SFÂRȘIT MODIFICARE ---
                     } else {
                          html = '<div class="p-6 text-red-500">Eroare: Comanda nu a fost găsită.</div>';
                     }
@@ -617,7 +618,6 @@ document.addEventListener('DOMContentLoaded', () => {
                         const asins = command.products.map(p => p.asin);
                         const details = await fetchProductDetailsInBulk(asins);
 
-                        // --- MODIFICARE: Filtrare bazată pe state.currentSearchQuery ---
                         let commandToRender = command;
                         const query = state.currentSearchQuery.toLowerCase().trim();
                         if (query) {
@@ -628,7 +628,6 @@ document.addEventListener('DOMContentLoaded', () => {
                             commandToRender = { ...command, products: filteredProducts };
                         }
                         html = templates.produse(commandToRender, details, context.manifestSKU);
-                        // --- SFÂRȘIT MODIFICARE ---
                     } else {
                          console.error('Eroare: commandId sau manifestSKU lipsă');
                          html = '<div class="p-6 text-red-500">Eroare: Datele pentru afișarea produselor sunt incomplete.</div>';
@@ -682,16 +681,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
         setActiveView(viewId); 
 
-        // --- MODIFICARE: Setează valoarea și focusul pentru search ---
         const searchInput = document.getElementById('product-search-input');
         if (searchInput) {
             searchInput.value = state.currentSearchQuery;
             if (document.activeElement !== searchInput) {
-                // Nu seta focus dacă nu era deja pe el, dar dacă era, păstrează-l
-                // Pentru a păstra focusul după re-randare, logica e în event listener-ul 'input'
             }
         }
-        // --- SFÂRȘIT MODIFICARE ---
 
         if (viewId === 'produs-detaliu' && product) {
             const galleryContainer = document.getElementById('image-gallery-container');
@@ -719,7 +714,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const thumbnail = target.closest('[data-action="select-thumbnail"]');
 
         if (commandCard) {
-            state.currentSearchQuery = ''; // <-- MODIFICARE: Resetează căutarea
+            state.currentSearchQuery = ''; 
             state.currentCommandId = commandCard.dataset.commandId;
             state.currentManifestSKU = null;
             state.currentProductId = null;
@@ -800,6 +795,60 @@ document.addEventListener('DOMContentLoaded', () => {
                 await renderView('produse', { commandId: state.currentCommandId, manifestSKU: state.currentManifestSKU });
             }
             
+            // <-- MODIFICARE: Logica pentru butonul "edit-asin" -->
+            if (action === 'edit-asin') {
+                const productsku = actionButton.dataset.productsku;
+                const oldAsin = actionButton.dataset.oldAsin;
+                
+                const newAsin = prompt("Introduceți noul ASIN:", oldAsin);
+
+                if (!newAsin || newAsin.trim() === '' || newAsin.trim() === oldAsin) {
+                    return; // Anulat, gol sau neschimbat
+                }
+
+                const confirmation = confirm("Atenție!\n\nSchimbarea ASIN-ului va reîncărca datele acestui produs și poate modifica titlul, pozele sau descrierea. Datele nesalvate (titlu, descriere, etc.) se vor pierde.\n\nSigur doriți să continuați?");
+
+                if (!confirmation) {
+                    return;
+                }
+
+                const payload = {
+                    productsku: productsku,
+                    asin_vechi: oldAsin,
+                    asin_nou: newAsin.trim()
+                };
+
+                try {
+                    const response = await fetch(ASIN_UPDATE_WEBHOOK_URL, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
+
+                    if (!response.ok) {
+                        throw new Error(`Eroare HTTP: ${response.status}`);
+                    }
+
+                    const result = await response.json();
+                    if (result.status === 'success') {
+                        alert("ASIN-ul a fost actualizat cu succes! Se reîncarcă datele...");
+                        // 1. Re-sincronizează datele comenzii (care acum conțin noul ASIN)
+                        await fetchDataAndSyncState();
+                        // 2. Re-randează pagina de produs, care va folosi noul ASIN pentru a lua detalii
+                        await renderView('produs-detaliu', { 
+                            commandId: state.currentCommandId, 
+                            productId: state.currentProductId 
+                        });
+                    } else {
+                        alert(`Eroare la actualizare: ${result.message || 'Răspuns invalid de la server.'}`);
+                    }
+                } catch (error) {
+                    console.error('Eroare la actualizarea ASIN-ului:', error);
+                    alert(`A apărut o eroare de rețea: ${error.message}`);
+                }
+            }
+            // <-- SFÂRȘIT MODIFICARE -->
+
             if (action === 'delete-image') {
                 const imageSrc = actionButton.dataset.imageSrc;
                 if (!imageSrc) return;
@@ -1047,7 +1096,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    // --- MODIFICARE: Adăugat 'async' și logica pentru 'product-search-input' ---
     mainContent.addEventListener('input', async (event) => {
         if (event.target.id === 'language-search') {
             const filter = event.target.value.toLowerCase();
@@ -1057,12 +1105,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 link.style.display = text.includes(filter) ? '' : 'none';
             });
         }
-        // --- BLOC NOU PENTRU CĂUTARE ---
         else if (event.target.id === 'product-search-input') {
             state.currentSearchQuery = event.target.value;
-            state.productScrollPosition = 0; // Resetează scroll-ul la căutare
+            state.productScrollPosition = 0; 
 
-            // Optimizare (Debounce): Așteaptă 300ms înainte de a re-randa
             if (state.searchTimeout) {
                 clearTimeout(state.searchTimeout);
             }
@@ -1076,16 +1122,13 @@ document.addEventListener('DOMContentLoaded', () => {
                     await renderView('produse', { commandId: state.currentCommandId, manifestSKU: state.currentManifestSKU });
                 }
 
-                // După re-randare, punem focusul înapoi în input
                 const searchInput = document.getElementById('product-search-input');
                 if (searchInput) {
                     searchInput.focus();
-                    // Mută cursorul la sfârșit
                     searchInput.setSelectionRange(searchInput.value.length, searchInput.value.length);
                 }
-            }, 300); // 300ms debounce
+            }, 300); 
         }
-        // --- SFÂRȘIT BLOC NOU ---
     });
     
     mainContent.addEventListener('submit', async (event) => {
