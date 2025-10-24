@@ -17,8 +17,8 @@ document.addEventListener('DOMContentLoaded', () => {
         activeVersionKey: 'origin',
         descriptionEditorMode: 'raw',
         sortableInstance: null,
-        // --- NOU: Stocăm datele de competiție ---
-        competitionDataCache: null 
+        competitionDataCache: null,
+        productScrollPosition: 0 // <-- MODIFICARE: Am adăugat starea pentru scroll
     };
 
     const languages = {
@@ -182,7 +182,7 @@ document.addEventListener('DOMContentLoaded', () => {
             parentView = 'comenzi';
         }
         sidebarButtons.forEach(btn => btn.classList.toggle('active-tab', btn.dataset.view === parentView));
-        mainContent.scrollTop = 0;
+        // mainContent.scrollTop = 0; // <-- MODIFICARE: Am eliminat această linie
     }
 
     const templates = {
@@ -567,6 +567,23 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         
         mainContent.innerHTML = html;
+
+        // --- MODIFICARE: Logica pentru scroll ---
+        if (viewId === 'produse' && state.productScrollPosition > 0) {
+            // Restaurează scroll-ul pentru pagina de produse
+            mainContent.scrollTop = state.productScrollPosition;
+        } else {
+            // Resetează scroll-ul pentru orice altă pagină
+            mainContent.scrollTop = 0;
+        }
+
+        // Resetează scroll-ul salvat dacă navigăm undeva
+        // care nu face parte din fluxul produse <-> detalii
+        if (viewId !== 'produse' && viewId !== 'produs-detaliu') {
+            state.productScrollPosition = 0;
+        }
+        // --- SFÂRȘIT MODIFICARE ---
+
         setActiveView(viewId); 
 
         if (viewId === 'produs-detaliu' && product) {
@@ -606,6 +623,7 @@ document.addEventListener('DOMContentLoaded', () => {
             await renderView('produse', { commandId: state.currentCommandId, manifestSKU: state.currentManifestSKU });
         
         } else if (productCard) {
+            state.productScrollPosition = mainContent.scrollTop; // <-- MODIFICARE: Salvăm poziția scroll-ului
             state.currentProductId = productCard.dataset.productId;
             await renderView('produs-detaliu', { 
                 commandId: state.currentCommandId, 
