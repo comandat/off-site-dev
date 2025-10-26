@@ -7,7 +7,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const N8N_UPLOAD_WEBHOOK_URL = 'https://automatizare.comandat.ro/webhook/d92efbca-eaf1-430e-8748-cc6466c82c6e';
     const COMPETITION_WEBHOOK_URL = 'https://automatizare.comandat.ro/webhook/db241e9f-fe67-40bf-89ae-d06f13b90d09';
     // --- NOU: URL pentru generare titlu ---
-    const TITLE_GENERATION_WEBHOOK_URL = 'https://automatizare.comandat.ro/webhook/0bc8e16e-2ba8-4c3d-ba66-9eb8898ac0ef'; 
+    const TITLE_GENERATION_WEBHOOK_URL = 'https://automatizare.comandat.ro/webhook/0bc8e16e-2ba8-4c3d-ba66-9eb8898ac0ef';
     // --- NOU: URL pentru update ASIN ---
     const ASIN_UPDATE_WEBHOOK_URL = 'https://automatizare.comandat.ro/webhook/5f107bd7-cc2b-40b7-8bbf-5e3a48667405';
     // --- NOU: URL pentru Gata de Listat ---
@@ -22,11 +22,11 @@ document.addEventListener('DOMContentLoaded', () => {
         activeVersionKey: 'origin',
         descriptionEditorMode: 'raw',
         sortableInstance: null,
-        competitionDataCache: null, 
+        competitionDataCache: null,
         productScrollPosition: 0,
-        currentSearchQuery: '', 
-        currentView: 'comenzi', 
-        searchTimeout: null     
+        currentSearchQuery: '',
+        currentView: 'comenzi',
+        searchTimeout: null
     };
 
     const languages = {
@@ -40,7 +40,7 @@ document.addEventListener('DOMContentLoaded', () => {
         'ru': 'Russian', 'sr': 'Serbian', 'sk': 'Slovak', 'sl': 'Slovenian',
         'es': 'Spanish', 'sv': 'Swedish', 'tr': 'Turkish', 'uk': 'Ukrainian', 'cy': 'Welsh'
     };
-    
+
     const languageNameToCodeMap = {};
     for (const [code, name] of Object.entries(languages)) {
         languageNameToCodeMap[name.toLowerCase()] = code.toUpperCase();
@@ -69,23 +69,23 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function fuzzySearch(query, target) {
-        if (!query) return true; 
-        if (!target) return false; 
+        if (!query) return true;
+        if (!target) return false;
 
         const queryWords = query.toLowerCase().split(' ').filter(w => w.length > 0);
         const targetText = target.toLowerCase();
         const targetWords = targetText.split(' ').filter(w => w.length > 0);
-        
+
         targetWords.push(targetText);
 
         return queryWords.every(queryWord => {
             return targetWords.some(targetWord => {
                 const distance = getLevenshteinDistance(queryWord, targetWord);
-                
+
                 let tolerance = 0;
-                if (queryWord.length <= 2) tolerance = 0; 
-                else if (queryWord.length <= 4) tolerance = 1; 
-                else tolerance = 2; 
+                if (queryWord.length <= 2) tolerance = 0;
+                else if (queryWord.length <= 4) tolerance = 1;
+                else tolerance = 2;
 
                 if (targetWord.includes(queryWord)) {
                     return true;
@@ -106,7 +106,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 ghostClass: 'bg-blue-100',
                 forceFallback: true,
                 onEnd: () => {
-                    saveCurrentTabData(); 
+                    saveCurrentTabData();
                 }
             });
         }
@@ -128,7 +128,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function renderImageGallery(images) {
-        if (images === undefined || images === null) { 
+        if (images === undefined || images === null) {
             let buttonsHTML = `
                 <button data-action="add-image-url" class="mt-4 w-full flex items-center justify-center space-x-2 p-2 text-sm text-blue-600 border border-blue-600 rounded-lg hover:bg-blue-50 transition-colors">
                     <span class="material-icons text-base">add_link</span>
@@ -157,7 +157,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 ${buttonsHTML}
             `;
         }
-        
+
         const uniqueImages = [...new Set(images)];
         const mainImageSrc = uniqueImages[0] || '';
         let thumbnailsHTML = '';
@@ -167,10 +167,10 @@ document.addEventListener('DOMContentLoaded', () => {
             if (img) {
                 thumbnailsHTML += `
                     <div class="relative group aspect-square" data-image-src="${img}">
-                        <img src="${img}" 
+                        <img src="${img}"
                              class="w-full h-full object-cover rounded-md thumbnail-image ${mainImageSrc === img ? 'border-2 border-blue-600' : ''}">
                         <div data-action="select-thumbnail" data-src="${img}" class="absolute inset-0 cursor-pointer z-0"></div>
-                        <button data-action="delete-image" data-image-src="${img}" 
+                        <button data-action="delete-image" data-image-src="${img}"
                                 class="absolute top-0 right-0 -mt-1 -mr-1 p-0.5 bg-red-600 text-white rounded-full hidden group-hover:block hover:bg-red-700 transition-all opacity-90 hover:opacity-100 z-10">
                             <span class="material-icons" style="font-size: 16px;">close</span>
                         </button>
@@ -210,7 +210,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             return state.editedProductData.images;
         }
-        
+
         if (!state.editedProductData.other_versions) state.editedProductData.other_versions = {};
         if (!state.editedProductData.other_versions[key]) state.editedProductData.other_versions[key] = {};
         if (state.editedProductData.other_versions[key].images === undefined) {
@@ -228,7 +228,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         if (!state.editedProductData.other_versions) state.editedProductData.other_versions = {};
         if (!state.editedProductData.other_versions[key]) state.editedProductData.other_versions[key] = {};
-        
+
         state.editedProductData.other_versions[key].images = imagesArray;
     }
 
@@ -245,31 +245,41 @@ document.addEventListener('DOMContentLoaded', () => {
         comenzi: () => {
             const commands = AppState.getCommands();
             const commandsHTML = commands.length > 0
-                ? commands.map(cmd => `
-                    <div class="bg-white p-4 rounded-lg shadow-sm hover:shadow-md transition-shadow relative">
-                        <div class="cursor-pointer" data-command-id="${cmd.id}">
-                            <h3 class="font-bold text-gray-800 pr-10">${cmd.name}</h3>
-                            <p class="text-sm text-gray-500">${cmd.products.length} produse</p>
-                        </div>
-                        
-                        <div class="absolute top-2 right-2 dropdown command-options-dropdown">
-                            <button class="p-2 rounded-full hover:bg-gray-200 dropdown-toggle">
-                                <span class="material-icons text-gray-600">more_vert</span>
-                            </button>
-                            <div class="absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-xl hidden dropdown-menu z-20 border border-gray-200">
-                                <a href="#" data-action="ready-to-list-command" data-command-id="${cmd.id}" class="flex items-center space-x-2 block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">
-                                    <span class="material-icons text-base text-green-600">task_alt</span>
-                                    <span>Marchează Toate Gata</span>
-                                </a>
-                                </div>
-                        </div>
-                    </div>
-                `).join('')
+                ? commands.map(cmd => {
+                    // --- MODIFICARE: Verifică dacă toate produsele sunt gata ---
+                    const allProductsReady = cmd.products.length > 0 && cmd.products.every(p => p.listingReady);
+                    const actionText = allProductsReady ? "Anulează Marcaj Toate" : "Marchează Toate Gata";
+                    const iconClass = allProductsReady ? "text-yellow-600" : "text-green-600";
+                    const iconName = allProductsReady ? "cancel" : "task_alt";
+
+                    return `
+                        <div class="bg-white p-4 rounded-lg shadow-sm hover:shadow-md transition-shadow relative">
+                            <div class="cursor-pointer" data-command-id="${cmd.id}">
+                                <h3 class="font-bold text-gray-800 pr-10">${cmd.name}</h3>
+                                <p class="text-sm text-gray-500">${cmd.products.length} produse</p>
+                            </div>
+
+                            <div class="absolute top-2 right-2 dropdown command-options-dropdown">
+                                <button class="p-2 rounded-full hover:bg-gray-200 dropdown-toggle">
+                                    <span class="material-icons text-gray-600">more_vert</span>
+                                </button>
+                                <div class="absolute right-0 mt-2 w-56 bg-white rounded-lg shadow-xl hidden dropdown-menu z-20 border border-gray-200">
+                                    <a href="#"
+                                       data-action="ready-to-list-command"
+                                       data-command-id="${cmd.id}"
+                                       data-current-status="${allProductsReady}" class="flex items-center space-x-2 block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">
+                                        <span class="material-icons text-base ${iconClass}">${iconName}</span>
+                                        <span>${actionText}</span>
+                                    </a>
+                                    </div>
+                            </div>
+                        </div>`;
+                 }).join('')
                 : `<p class="col-span-full text-gray-500">Nu există comenzi de afișat.</p>`;
             return `<div class="p-6 sm:p-8"><h2 class="text-3xl font-bold text-gray-800 mb-6">Panou de Comenzi</h2><div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">${commandsHTML}</div></div>`;
         },
         import: () => `<div class="p-6 sm:p-8"><h2 class="text-3xl font-bold text-gray-800 mb-6">Import Comandă Nouă</h2><div class="max-w-md bg-white p-8 rounded-lg shadow-md"><form id="upload-form"><div class="mb-5"><label for="zip-file" class="block mb-2 text-sm font-medium">Manifest (.zip):</label><input type="file" id="zip-file" name="zipFile" accept=".zip" required class="w-full text-sm border-gray-300 rounded-lg cursor-pointer bg-gray-50"></div><div class="mb-6"><label for="pdf-file" class="block mb-2 text-sm font-medium">Factura (.pdf):</label><input type="file" id="pdf-file" name="pdfFile" accept=".pdf" required class="w-full text-sm border-gray-300 rounded-lg cursor-pointer bg-gray-50"></div><p id="upload-status" class="mt-4 text-center text-sm font-medium min-h-[20px]"></p><button id="upload-button" type="submit" class="w-full mt-2 flex justify-center items-center px-4 py-3 text-lg font-bold text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:bg-blue-300"><span class="button-text">Trimite fișierele 🚀</span><div class="button-loader hidden w-6 h-6 border-4 border-white border-t-transparent rounded-full animate-spin"></div></button></form></div></div>`,
-        
+
         paleti: (command, details) => {
             const paleti = {};
             command.products.forEach(p => {
@@ -281,7 +291,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     paleti[sku].allReady = false;
                 }
             });
-            
+
             // --- NOU: Sortare paleți ---
             const sortedPaletiEntries = Object.entries(paleti).sort(([, palletA], [, palletB]) => {
                 // Sortează: false (ne-gata) vine înainte, true (gata) vine la urmă
@@ -293,7 +303,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 const firstProduct = products[0];
                 const firstProductDetails = firstProduct ? details[firstProduct.asin] : null;
                 const firstImage = firstProductDetails?.images?.[0] || '';
-                
+
                 const readyClass = allReady ? 'bg-green-50' : 'bg-white';
                 const readyIcon = allReady ? '<span class="material-icons text-green-500 absolute top-2 right-2" title="Palet Gata">task_alt</span>' : '';
 
@@ -306,7 +316,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 </div>`;
             }).join('');
             // --- SFÂRȘIT MODIFICARE ---
-            
+
             const noResultsHTML = paletiHTML.length === 0 ? `<p class="col-span-full text-gray-500">Nu s-au găsit produse care să corespundă căutării.</p>` : paletiHTML;
 
             return `
@@ -326,7 +336,7 @@ document.addEventListener('DOMContentLoaded', () => {
                  const sku = p.manifestsku || 'No ManifestSKU';
                  return sku === manifestSKU;
              });
-             
+
              // --- NOU: Sortare și stilizare ---
              productsToShow.sort((a, b) => {
                  // Sortează: false (ne-gata) vine înainte, true (gata) vine la urmă
@@ -337,7 +347,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 const d = details[p.asin];
                 const readyClass = p.listingReady ? 'bg-green-50' : 'bg-white';
                 const readyIcon = p.listingReady ? '<span class="material-icons text-green-500" title="Gata de listat">task_alt</span>' : '';
-                
+
                 return `<div class="flex items-center gap-4 ${readyClass} p-3 rounded-md shadow-sm cursor-pointer hover:bg-gray-50" data-product-id="${p.id}">
                             <img src="${d?.images?.[0] || ''}" class="w-16 h-16 object-cover rounded-md bg-gray-200">
                             <div class="flex-1">
@@ -352,7 +362,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         </div>`;
             }).join('');
             // --- SFÂRȘIT MODIFICARE ---
-            
+
             const noResultsHTML = productsToShow.length === 0 ? `<p class="col-span-full text-gray-500">Nu s-au găsit produse care să corespundă căutării.</p>` : productsHTML;
 
             return `
@@ -366,12 +376,12 @@ document.addEventListener('DOMContentLoaded', () => {
             </header>
             <div class="p-4 space-y-2">${noResultsHTML}</div>`;
         },
-        
+
         competition: (competitionData) => {
             let cardsHTML = '';
             for (let i = 1; i <= 5; i++) {
                 const name = competitionData[`productname_${i}`];
-                if (!name) break; 
+                if (!name) break;
 
                 const image = competitionData[`productimage_${i}`] || '';
                 const url = competitionData[`producturl_${i}`] || '#';
@@ -387,7 +397,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (labelText) {
                     labelHTML = `<span class="absolute top-2 left-2 bg-blue-500 text-white text-xs font-bold px-2 py-1 rounded">${labelText}</span>`;
                 }
-                
+
                 let priceHTML = '';
                 if (oldPrice) {
                     priceHTML += `<p class="text-sm text-gray-500 line-through">${oldPrice}</p>`;
@@ -412,7 +422,7 @@ document.addEventListener('DOMContentLoaded', () => {
                                 <div class="mt-2 mb-3">
                                     ${priceHTML}
                                 </div>
-                                <a href="${url}" target="_blank" rel="noopener noreferrer" 
+                                <a href="${url}" target="_blank" rel="noopener noreferrer"
                                    class="block w-full text-center px-4 py-2 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-700 transition-colors">
                                    Vezi Produsul
                                 </a>
@@ -424,22 +434,29 @@ document.addEventListener('DOMContentLoaded', () => {
 
             return `<div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">${cardsHTML}</div>`;
         },
-        
-        produsDetaliu: (product, details) => {
-            
+
+        // --- MODIFICARE: Semnătura funcției s-a schimbat ---
+        produsDetaliu: (product, details, commandId) => {
+
             const languageButtons = Object.entries(languages).map(([code, name]) =>
                 `<a href="#" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 language-option" data-lang-code="${code}">${code.toUpperCase()}</a>`
             ).join('');
 
             const otherVersions = details.other_versions || {};
-            
+
             const versionsButtons = Object.keys(otherVersions).map(key => {
                 const displayText = languageNameToCodeMap[key.toLowerCase()] || key.toUpperCase();
                 return `<button data-version-key="${key}" class="px-4 py-1.5 text-sm font-semibold text-gray-600 hover:bg-gray-100 rounded-md version-btn">${displayText}</button>`;
             }).join('');
-            
-            state.descriptionEditorMode = 'raw'; 
-            
+
+            state.descriptionEditorMode = 'raw';
+
+            // --- MODIFICARE: Determină starea butonului "Marchează Gata" ---
+            const isProductReady = product.listingReady;
+            const readyButtonText = isProductReady ? "Anulează Marcaj Gata" : "Marchează Gata";
+            const readyButtonIcon = isProductReady ? "cancel" : "task_alt";
+            const readyButtonBgColor = isProductReady ? "bg-yellow-500 hover:bg-yellow-600" : "bg-green-600 hover:bg-green-700";
+
             return `
             <header class="flex items-center justify-between h-16 px-6 border-b border-gray-200 bg-white sticky top-0 z-10">
                 <div class="flex items-center space-x-4"><button data-action="back-to-produse" class="text-gray-600"><span class="material-icons">arrow_back</span></button><h2 class="text-lg font-semibold">Detalii Produs</h2></div>
@@ -457,10 +474,14 @@ document.addEventListener('DOMContentLoaded', () => {
                             </div>
                         </div>
                     </div>
-                    
-                    <button data-action="ready-to-list-single" data-asin="${product.asin}" class="px-4 py-2 bg-green-600 text-white rounded-lg font-semibold hover:bg-green-700 text-sm flex items-center space-x-2">
-                        <span class="material-icons text-base">task_alt</span>
-                        <span>Marchează Gata</span>
+
+                    <button data-action="ready-to-list-single"
+                            data-asin="${product.asin}"
+                            data-order-id="${commandId}"
+                            data-pallet-sku="${product.manifestsku}"
+                            data-current-status="${isProductReady}" class="px-4 py-2 ${readyButtonBgColor} text-white rounded-lg font-semibold text-sm flex items-center space-x-2 transition-colors">
+                        <span class="material-icons text-base">${readyButtonIcon}</span>
+                        <span>${readyButtonText}</span>
                     </button>
 
                     <button data-action="save-product" class="px-6 py-2 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700">Salvează Modificările</button>
@@ -473,11 +494,11 @@ document.addEventListener('DOMContentLoaded', () => {
                         <div class="bg-white p-4 rounded-xl shadow-sm space-y-4">
                             <div><label class="text-sm font-medium text-gray-500">Brand</label><input id="product-brand" class="mt-1 block w-full bg-transparent p-0 border-0 border-b-2" type="text" value="${details.brand || ''}"></div>
                             <div><label class="text-sm font-medium text-gray-500">Preț estimat</label><input id="product-price" class="mt-1 block w-full bg-transparent p-0 border-0 border-b-2" type="text" value="${details.price || ''}"></div>
-                            
+
                             <div>
                                 <div class="flex justify-between items-center">
                                     <label for="product-asin" class="text-sm font-medium text-gray-500">ASIN</label>
-                                    <button data-action="edit-asin" data-productsku="${product.id}" data-old-asin="${product.asin}" 
+                                    <button data-action="edit-asin" data-productsku="${product.id}" data-old-asin="${product.asin}"
                                             class="px-3 py-1 text-xs font-semibold text-blue-600 bg-blue-100 rounded-full hover:bg-blue-200 transition-colors">
                                         Editează ASIN
                                     </button>
@@ -487,7 +508,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
                         </div>
                     </div>
-                    
+
                     <div class="lg:col-span-2 bg-white rounded-xl shadow-sm">
                          <div class="flex items-center justify-between p-4 border-b border-gray-200"><div id="version-selector" class="flex space-x-1 border rounded-lg p-1"><button data-version-key="origin" class="px-4 py-1.5 text-sm font-semibold rounded-md bg-blue-600 text-white version-btn">Origin</button>${versionsButtons}</div></div>
                          <div class="p-6 space-y-6">
@@ -529,14 +550,14 @@ document.addEventListener('DOMContentLoaded', () => {
             </div>`;
         }
     };
-    
+
     // --- MODIFICARE: Funcția saveCurrentTabData a fost corectată ---
     function saveCurrentTabData() {
         const titleEl = document.getElementById('product-title');
         if (!titleEl) return;
-        
+
         const title = titleEl.value;
-        
+
         let description = '';
         if (state.descriptionEditorMode === 'raw') {
             const rawEl = document.getElementById('product-description-raw');
@@ -555,7 +576,7 @@ document.addEventListener('DOMContentLoaded', () => {
         } else {
             if (!state.editedProductData.other_versions) state.editedProductData.other_versions = {};
             if (!state.editedProductData.other_versions[key]) state.editedProductData.other_versions[key] = {};
-            
+
             state.editedProductData.other_versions[key].title = title;
             state.editedProductData.other_versions[key].description = description;
         }
@@ -568,9 +589,9 @@ document.addEventListener('DOMContentLoaded', () => {
             thumbsContainer.querySelectorAll('[data-image-src]').forEach(el => {
                 currentImages.push(el.dataset.imageSrc);
             });
-            
+
             // Folosim funcția existentă care știe să salveze la 'origin' sau 'other_versions'
-            setCurrentImagesArray(currentImages); 
+            setCurrentImagesArray(currentImages);
         }
         // Dacă thumbsContainer nu există (suntem în vizualizarea "Nu ai stabilit poze"),
         // NU salvăm nimic legat de imagini, pentru a nu polua starea cu un array gol.
@@ -580,7 +601,7 @@ document.addEventListener('DOMContentLoaded', () => {
     function loadTabData(versionKey) {
         saveCurrentTabData();
         state.activeVersionKey = versionKey;
-        
+
         let dataToLoad = {};
         let imagesToLoad = null;
 
@@ -590,11 +611,11 @@ document.addEventListener('DOMContentLoaded', () => {
             if (!imagesToLoad) imagesToLoad = [];
         } else {
             dataToLoad = state.editedProductData.other_versions?.[versionKey] || {};
-            imagesToLoad = dataToLoad.images; 
+            imagesToLoad = dataToLoad.images;
         }
-        
+
         document.getElementById('product-title').value = dataToLoad.title || '';
-        
+
         const description = dataToLoad.description || '';
         const rawEl = document.getElementById('product-description-raw');
         const previewEl = document.getElementById('product-description-preview');
@@ -610,7 +631,7 @@ document.addEventListener('DOMContentLoaded', () => {
              document.querySelector('.desc-mode-btn[data-mode="preview"]').classList.add('hover:bg-gray-100');
              state.descriptionEditorMode = 'raw';
         }
-        
+
         const galleryContainer = document.getElementById('image-gallery-container');
         if (galleryContainer) {
             galleryContainer.innerHTML = renderImageGallery(imagesToLoad);
@@ -630,56 +651,64 @@ document.addEventListener('DOMContentLoaded', () => {
             refreshBtn.classList.toggle('hidden', !isRomanianTab);
         }
     }
-    
+
     /**
-     * --- NOU: Funcție helper pentru trimiterea ASIN-urilor "Gata de Listat" ---
-     * @param {string[]} asins - O listă de string-uri ASIN
-     * @param {HTMLElement} button - Butonul care a inițiat acțiunea (pentru feedback vizual)
+     * --- MODIFICAT: Funcția helper acceptă acum un obiect 'payload' ---
+     * @param {object} payload - Obiectul de trimis ca JSON (ex: {asin, orderId, pallet, setReadyStatus} sau {orderId, setReadyStatus})
+     * @param {HTMLElement} button - Butonul care a inițiat acțiunea
      */
-    async function sendReadyToList(asins, button) {
-        if (!asins || asins.length === 0) {
-            alert('Nu există ASIN-uri de trimis.');
+    async function sendReadyToList(payload, button) {
+        if (!payload) {
+            alert('Nu există date de trimis.');
             return false;
         }
 
-        let originalText = '';
+        let originalHTML = ''; // Schimbat din originalText în originalHTML
         if (button) {
-            originalText = button.innerHTML;
+            originalHTML = button.innerHTML; // Păstrăm tot HTML-ul (inclusiv iconița)
             button.disabled = true;
-            button.innerHTML = '<span class="text-sm">Se trimite...</span>';
+            // Afișăm un spinner simplu în loc de text
+            button.innerHTML = '<div class="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mx-auto"></div>';
         }
 
         try {
             const response = await fetch(READY_TO_LIST_WEBHOOK_URL, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ asins: asins })
+                body: JSON.stringify(payload) // Trimite payload-ul direct
             });
 
             if (!response.ok) {
-                throw new Error(`Eroare HTTP: ${response.status}`);
+                 const errorText = await response.text();
+                 console.error("Webhook Error Response:", errorText);
+                 throw new Error(`Eroare HTTP: ${response.status}. ${errorText}`);
             }
 
             const result = await response.json();
-            
+
             // Actualizăm starea locală pentru a reflecta schimbarea
             await fetchDataAndSyncState();
-            
-            alert('Produsele au fost marcate cu succes!');
+
+            // Afișăm un mesaj de succes specific acțiunii
+            const actionMessage = payload.setReadyStatus ? 'marcat' : 'demarcat';
+            alert(`Acțiune (${actionMessage}) realizată cu succes!`);
             return true;
 
         } catch (error) {
-            console.error('Eroare la trimiterea "Gata pentru Listat":', error);
+            console.error('Eroare la trimiterea "Marchează/Anulează Marcaj Gata":', error);
             alert(`A apărut o eroare: ${error.message}`);
             return false;
         } finally {
             if (button) {
                 button.disabled = false;
-                button.innerHTML = originalText;
+                // --- ATENȚIE: Nu mai restaurăm HTML-ul vechi aici ---
+                // View-ul va fi re-randat oricum, afișând butonul actualizat corect.
+                // Restaurarea aici ar putea afișa starea veche pentru o fracțiune de secundă.
+                // button.innerHTML = originalHTML; // Am comentat această linie
             }
         }
     }
-    
+
     async function fetchAndRenderCompetition(asin) {
         const container = document.getElementById('competition-container');
         if (!container) return;
@@ -693,7 +722,7 @@ document.addEventListener('DOMContentLoaded', () => {
             });
 
             if (!response.ok) throw new Error('Eroare la preluarea datelor de competiție');
-            
+
             const data = await response.json();
             state.competitionDataCache = data;
             container.innerHTML = templates.competition(data);
@@ -704,18 +733,18 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     async function renderView(viewId, context = {}) {
-        state.currentView = viewId; 
+        state.currentView = viewId;
         let html = '';
-        let product = null; 
+        let product = null;
         mainContent.innerHTML = `<div class="p-8 text-center text-gray-500">Se încarcă...</div>`;
-        try { 
+        try {
             switch(viewId) {
-                case 'comenzi': 
-                    await fetchDataAndSyncState(); 
-                    html = templates.comenzi(); 
+                case 'comenzi':
+                    await fetchDataAndSyncState();
+                    html = templates.comenzi();
                     break;
-                case 'import': 
-                    html = templates.import(); 
+                case 'import':
+                    html = templates.import();
                     break;
                  case 'paleti':
                     const commandForPaleti = AppState.getCommands().find(c => c.id === context.commandId);
@@ -726,8 +755,8 @@ document.addEventListener('DOMContentLoaded', () => {
                         let commandToRender = commandForPaleti;
                         const query = state.currentSearchQuery.toLowerCase().trim();
                         if (query) {
-                            const filteredProducts = commandForPaleti.products.filter(p => 
-                                fuzzySearch(query, detailsForPaleti[p.asin]?.title || '') || 
+                            const filteredProducts = commandForPaleti.products.filter(p =>
+                                fuzzySearch(query, detailsForPaleti[p.asin]?.title || '') ||
                                 fuzzySearch(query, p.asin)
                             );
                             commandToRender = { ...commandForPaleti, products: filteredProducts };
@@ -739,15 +768,15 @@ document.addEventListener('DOMContentLoaded', () => {
                     break;
                 case 'produse':
                     const command = AppState.getCommands().find(c => c.id === context.commandId);
-                    if (command && context.manifestSKU) { 
+                    if (command && context.manifestSKU) {
                         const asins = command.products.map(p => p.asin);
                         const details = await fetchProductDetailsInBulk(asins);
 
                         let commandToRender = command;
                         const query = state.currentSearchQuery.toLowerCase().trim();
                         if (query) {
-                            const filteredProducts = command.products.filter(p => 
-                                fuzzySearch(query, details[p.asin]?.title || '') || 
+                            const filteredProducts = command.products.filter(p =>
+                                fuzzySearch(query, details[p.asin]?.title || '') ||
                                 fuzzySearch(query, p.asin)
                             );
                             commandToRender = { ...command, products: filteredProducts };
@@ -759,26 +788,32 @@ document.addEventListener('DOMContentLoaded', () => {
                     }
                     break;
                 case 'produs-detaliu':
-                    state.competitionDataCache = null; 
+                    state.competitionDataCache = null;
                     const cmd = AppState.getCommands().find(c => c.id === context.commandId);
-                    product = cmd?.products.find(p => p.id === context.productId); 
+                    // --- MODIFICARE: Asigură-te că preluăm cea mai recentă stare a produsului ---
+                    if (cmd) {
+                       product = cmd.products.find(p => p.id === context.productId);
+                    }
+                    // --- SFÂRȘIT MODIFICARE ---
+
                     if (product) {
                         const detailsMap = await fetchProductDetailsInBulk([product.asin]);
                         const productDetails = detailsMap[product.asin];
-                        
+
                         if (!productDetails.images || !Array.isArray(productDetails.images)) {
                             productDetails.images = [];
                         }
                         productDetails.images = [...new Set(productDetails.images)];
-                        
+
                         state.editedProductData = JSON.parse(JSON.stringify(productDetails));
                         state.activeVersionKey = 'origin';
-                        
-                        html = templates.produsDetaliu(product, state.editedProductData);
+
+                        // --- MODIFICARE: Trimitem commandId la șablon ---
+                        html = templates.produsDetaliu(product, state.editedProductData, context.commandId);
                     } else {
                          html = '<div class="p-6 text-red-500">Eroare: Produsul nu a fost găsit.</div>';
                     }
-                    break; 
+                    break;
                 default:
                      html = `<div class="p-6 text-orange-500">View necunoscut: ${viewId}</div>`;
             }
@@ -791,7 +826,7 @@ document.addEventListener('DOMContentLoaded', () => {
             console.error(`renderView: Variabila 'html' nu este un string valid (este ${typeof html}). Folosind fallback.`);
             html = '<div class="p-6 text-red-500">Eroare internă la generarea conținutului.</div>';
         }
-        
+
         mainContent.innerHTML = html;
 
         if (viewId === 'produse' && state.productScrollPosition > 0) {
@@ -804,7 +839,7 @@ document.addEventListener('DOMContentLoaded', () => {
             state.productScrollPosition = 0;
         }
 
-        setActiveView(viewId); 
+        setActiveView(viewId);
 
         const searchInput = document.getElementById('product-search-input');
         if (searchInput) {
@@ -822,12 +857,12 @@ document.addEventListener('DOMContentLoaded', () => {
             fetchAndRenderCompetition(product.asin);
         }
     }
-    
+
     sidebarButtons.forEach(button => button.addEventListener('click', () => renderView(button.dataset.view)));
 
     mainContent.addEventListener('click', async (event) => {
         const target = event.target;
-        
+
         // --- MODIFICARE: Am scos data-command-id de pe cardul principal, l-am lăsat doar pe zona de text ---
         const commandCard = target.closest('[data-command-id]:not([data-action])');
         const palletCard = target.closest('[data-manifest-sku]');
@@ -840,31 +875,31 @@ document.addEventListener('DOMContentLoaded', () => {
         const thumbnail = target.closest('[data-action="select-thumbnail"]');
 
         if (commandCard) {
-            state.currentSearchQuery = ''; 
+            state.currentSearchQuery = '';
             state.currentCommandId = commandCard.dataset.commandId;
             state.currentManifestSKU = null;
             state.currentProductId = null;
             await renderView('paleti', { commandId: state.currentCommandId });
-        
-        } else if (palletCard) { 
+
+        } else if (palletCard) {
             state.currentManifestSKU = palletCard.dataset.manifestSku;
             state.currentProductId = null;
             await renderView('produse', { commandId: state.currentCommandId, manifestSKU: state.currentManifestSKU });
-        
+
         } else if (productCard) {
-            state.productScrollPosition = mainContent.scrollTop; 
+            state.productScrollPosition = mainContent.scrollTop;
             state.currentProductId = productCard.dataset.productId;
-            await renderView('produs-detaliu', { 
-                commandId: state.currentCommandId, 
+            await renderView('produs-detaliu', {
+                commandId: state.currentCommandId,
                 productId: state.currentProductId
             });
-        
+
         } else if (versionButton) {
             loadTabData(versionButton.dataset.versionKey);
-        
+
         } else if (descModeButton) {
             const mode = descModeButton.dataset.mode;
-            if (mode === state.descriptionEditorMode) return; 
+            if (mode === state.descriptionEditorMode) return;
 
             const rawEl = document.getElementById('product-description-raw');
             const previewEl = document.getElementById('product-description-preview');
@@ -880,7 +915,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 rawEl.classList.remove('hidden');
                 state.descriptionEditorMode = 'raw';
             }
-            
+
             document.querySelectorAll('.desc-mode-btn').forEach(btn => {
                 btn.classList.remove('bg-blue-600', 'text-white');
                 btn.classList.add('hover:bg-gray-100');
@@ -894,24 +929,24 @@ document.addEventListener('DOMContentLoaded', () => {
 
             const mainImage = document.getElementById('main-image');
             if (mainImage) mainImage.src = newImageSrc;
-            
+
             document.querySelectorAll('.thumbnail-image').forEach(img => {
                 const parent = img.closest('[data-image-src]');
                 const isSelected = parent && parent.dataset.imageSrc === newImageSrc;
                 img.classList.toggle('border-2', isSelected);
                 img.classList.toggle('border-blue-600', isSelected);
             });
-        
+
         } else if (actionButton) {
             const action = actionButton.dataset.action;
-            
+
             if (action === 'back-to-comenzi') {
                 state.currentCommandId = null;
                 state.currentManifestSKU = null;
                 state.currentProductId = null;
                 await renderView('comenzi');
              }
-            if (action === 'back-to-paleti') { 
+            if (action === 'back-to-paleti') {
                 state.currentManifestSKU = null;
                 state.currentProductId = null;
                 await renderView('paleti', { commandId: state.currentCommandId });
@@ -920,11 +955,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 state.currentProductId = null;
                 await renderView('produse', { commandId: state.currentCommandId, manifestSKU: state.currentManifestSKU });
             }
-            
+
             if (action === 'edit-asin') {
                 const productsku = actionButton.dataset.productsku;
                 const oldAsin = actionButton.dataset.oldAsin;
-                
+
                 const newAsin = prompt("Introduceți noul ASIN:", oldAsin);
 
                 if (!newAsin || newAsin.trim() === '' || newAsin.trim() === oldAsin) {
@@ -937,14 +972,12 @@ document.addEventListener('DOMContentLoaded', () => {
                     return;
                 }
 
-                // <-- MODIFICARE: Am adăugat orderId în payload -->
                 const payload = {
                     productsku: productsku,
                     asin_vechi: oldAsin,
                     asin_nou: newAsin.trim(),
-                    orderId: state.currentCommandId 
+                    orderId: state.currentCommandId
                 };
-                // <-- SFÂRȘIT MODIFICARE -->
 
                 try {
                     const response = await fetch(ASIN_UPDATE_WEBHOOK_URL, {
@@ -961,9 +994,9 @@ document.addEventListener('DOMContentLoaded', () => {
                     if (result.status === 'success') {
                         alert("ASIN-ul a fost actualizat cu succes! Se reîncarcă datele...");
                         await fetchDataAndSyncState();
-                        await renderView('produs-detaliu', { 
-                            commandId: state.currentCommandId, 
-                            productId: state.currentProductId 
+                        await renderView('produs-detaliu', {
+                            commandId: state.currentCommandId,
+                            productId: state.currentProductId
                         });
                     } else {
                         alert(`Eroare la actualizare: ${result.message || 'Răspuns invalid de la server.'}`);
@@ -973,37 +1006,52 @@ document.addEventListener('DOMContentLoaded', () => {
                     alert(`A apărut o eroare de rețea: ${error.message}`);
                 }
             }
-            
-            // --- NOU: HANDLER PENTRU "GATA PENTRU LISTAT" (SINGLE) ---
+
+            // --- MODIFICARE: HANDLER PENTRU "GATA PENTRU LISTAT" (SINGLE) ---
             if (action === 'ready-to-list-single') {
                 const asin = actionButton.dataset.asin;
-                if (confirm(`Sigur doriți să marcați acest produs (${asin}) ca "Gata pentru Listat"?`)) {
-                    const success = await sendReadyToList([asin], actionButton);
+                const orderId = actionButton.dataset.orderId;
+                const palletSku = actionButton.dataset.palletSku;
+                const currentStatus = actionButton.dataset.currentStatus === 'true'; // Convertim string în boolean
+                const setReadyStatus = !currentStatus; // Inversăm starea
+                const confirmAction = setReadyStatus ? "marcați" : "anulați marcajul pentru";
+
+                if (confirm(`Sigur doriți să ${confirmAction} acest produs (${asin}) ca "Gata pentru Listat"?`)) {
+                    const payload = {
+                        orderId: orderId,
+                        pallet: palletSku || 'N/A', // Asigurăm o valoare
+                        asin: asin,
+                        setReadyStatus: setReadyStatus // Adăugăm flag-ul boolean
+                    };
+                    const success = await sendReadyToList(payload, actionButton);
                     if (success) {
-                        // Re-randează view-ul curent pentru a reflecta starea (deși sendReadyToList face deja fetch)
-                        await renderView('produs-detaliu', { 
-                            commandId: state.currentCommandId, 
-                            productId: state.currentProductId 
+                        // Re-randează view-ul curent pentru a reflecta noua stare a butonului
+                        await renderView('produs-detaliu', {
+                            commandId: state.currentCommandId,
+                            productId: state.currentProductId
                         });
                     }
                 }
             }
 
-            // --- NOU: HANDLER PENTRU "GATA PENTRU LISTAT" (COMMAND) ---
+            // --- MODIFICARE: HANDLER PENTRU "GATA PENTRU LISTAT" (COMMAND) ---
             if (action === 'ready-to-list-command') {
                 event.preventDefault(); // Previne acțiunea default a link-ului <a>
                 const commandId = actionButton.dataset.commandId;
+                const currentStatus = actionButton.dataset.currentStatus === 'true'; // String to boolean
+                const setReadyStatus = !currentStatus;
+                const confirmAction = setReadyStatus ? "marcați TOATĂ" : "anulați marcajul pentru TOATĂ";
+
+                // Găsim numele comenzii doar pentru mesajul de confirmare
                 const command = AppState.getCommands().find(c => c.id === commandId);
-                
-                if (!command) {
-                    alert('Eroare: Comanda nu a fost găsită.');
-                    return;
-                }
-                
-                const asins = [...new Set(command.products.map(p => p.asin))]; // Trimite doar ASIN-uri unice
-                
-                if (confirm(`Sigur doriți să marcați toate cele ${asins.length} produse unice din comanda ${command.name} ca "Gata pentru Listat"?`)) {
-                    const success = await sendReadyToList(asins, actionButton);
+                const commandName = command ? command.name : `Comanda ${commandId.substring(0, 6)}`;
+
+                if (confirm(`Sigur doriți să ${confirmAction} comanda ${commandName} ca "Gata pentru Listat"?`)) {
+                    const payload = {
+                        orderId: commandId,
+                        setReadyStatus: setReadyStatus // Adăugăm flag-ul boolean
+                    };
+                    const success = await sendReadyToList(payload, actionButton.querySelector('span:last-child')); // Aplicăm spinner pe text
                     if (success) {
                         // Re-randează view-ul de comenzi pentru a reflecta starea
                         await renderView('comenzi');
@@ -1018,14 +1066,14 @@ document.addEventListener('DOMContentLoaded', () => {
             if (action === 'delete-image') {
                 const imageSrc = actionButton.dataset.imageSrc;
                 if (!imageSrc) return;
-                
+
                 let currentImages = getCurrentImagesArray();
                 if (!currentImages) currentImages = [];
-                
+
                 currentImages = currentImages.filter(img => img !== imageSrc);
-                
+
                 setCurrentImagesArray(currentImages);
-                
+
                 const galleryContainer = document.getElementById('image-gallery-container');
                 if (galleryContainer) {
                     galleryContainer.innerHTML = renderImageGallery(currentImages);
@@ -1045,7 +1093,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (newImageUrl) {
                     currentImages.push(newImageUrl);
                     setCurrentImagesArray(currentImages);
-                    
+
                     const galleryContainer = document.getElementById('image-gallery-container');
                     if (galleryContainer) {
                         galleryContainer.innerHTML = renderImageGallery(currentImages);
@@ -1055,8 +1103,8 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             if (action === 'copy-origin-images') {
                 const originImages = state.editedProductData.images || [];
-                setCurrentImagesArray([...originImages]); 
-                
+                setCurrentImagesArray([...originImages]);
+
                 const galleryContainer = document.getElementById('image-gallery-container');
                 if (galleryContainer) {
                     galleryContainer.innerHTML = renderImageGallery(originImages);
@@ -1075,8 +1123,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 const originTitle = state.editedProductData.title;
                 const originDescription = state.editedProductData.description;
                 const competitionCache = state.competitionDataCache;
-                const currentAsin = document.getElementById('product-asin')?.value; 
-                
+                const currentAsin = document.getElementById('product-asin')?.value;
+
                 if (!originTitle || !originDescription || !competitionCache || !currentAsin || TITLE_GENERATION_WEBHOOK_URL === 'URL_AICI_PENTRU_GENERARE_TITLU') {
                     alert('Eroare: Datele necesare (inclusiv ASIN) nu sunt disponibile sau URL-ul webhook nu este configurat.');
                     return;
@@ -1087,7 +1135,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 refreshBtn.disabled = true;
 
                 const payload = {
-                    asin: currentAsin, 
+                    asin: currentAsin,
                     title: originTitle,
                     description: originDescription
                 };
@@ -1110,7 +1158,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     if (result.output) {
                         const newTitle = result.output;
                         document.getElementById('product-title').value = newTitle;
-                        const roKey = 'romanian'; 
+                        const roKey = 'romanian';
                         if (!state.editedProductData.other_versions) state.editedProductData.other_versions = {};
                         if (!state.editedProductData.other_versions[roKey]) state.editedProductData.other_versions[roKey] = {};
                         state.editedProductData.other_versions[roKey].title = newTitle;
@@ -1131,29 +1179,29 @@ document.addEventListener('DOMContentLoaded', () => {
             if (action === 'save-product') {
                 actionButton.textContent = 'Se salvează...';
                 actionButton.disabled = true;
-                
+
                 saveCurrentTabData();
-                
+
                 state.editedProductData.brand = document.getElementById('product-brand').value;
                 const priceValue = document.getElementById('product-price').value;
                 state.editedProductData.price = priceValue.trim() === '' ? null : priceValue;
-                
+
                 const payload = JSON.parse(JSON.stringify(state.editedProductData));
 
                 if (payload.other_versions) {
                     const newOtherVersions = {};
                     for (const [langName, langData] of Object.entries(payload.other_versions)) {
                         const langCode = (languageNameToCodeMap[langName.toLowerCase()] || langName).toLowerCase();
-                        newOtherVersions[langCode] = langData; 
+                        newOtherVersions[langCode] = langData;
                     }
                     payload.other_versions = newOtherVersions;
                 }
 
                 const asin = document.getElementById('product-asin').value;
-                
+
                 const success = await saveProductDetails(asin, payload);
-                
-                if (success) { 
+
+                if (success) {
                     alert('Salvat cu succes!');
                     await renderView('produse', { commandId: state.currentCommandId, manifestSKU: state.currentManifestSKU });
                 } else {
@@ -1200,8 +1248,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    // --- BLOCUL DUPLICAT A FOST ȘTERS DE AICI ---
-
     mainContent.addEventListener('input', async (event) => {
         if (event.target.id === 'language-search') {
             const filter = event.target.value.toLowerCase();
@@ -1213,15 +1259,15 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         else if (event.target.id === 'product-search-input') {
             state.currentSearchQuery = event.target.value;
-            state.productScrollPosition = 0; 
+            state.productScrollPosition = 0;
 
             if (state.searchTimeout) {
                 clearTimeout(state.searchTimeout);
             }
-            
+
             state.searchTimeout = setTimeout(async () => {
                 const currentView = state.currentView;
-                
+
                 if (currentView === 'paleti') {
                     await renderView('paleti', { commandId: state.currentCommandId });
                 } else if (currentView === 'produse') {
@@ -1233,10 +1279,10 @@ document.addEventListener('DOMContentLoaded', () => {
                     searchInput.focus();
                     searchInput.setSelectionRange(searchInput.value.length, searchInput.value.length);
                 }
-            }, 300); 
+            }, 300);
         }
     });
-    
+
     mainContent.addEventListener('submit', async (event) => {
         if (event.target.id === 'upload-form') {
             event.preventDefault();
@@ -1274,7 +1320,7 @@ document.addEventListener('DOMContentLoaded', () => {
             document.getElementById('lightbox-main-image').src = src;
             document.getElementById('lightbox-copy-btn').dataset.src = src;
             document.getElementById('lightbox-copy-text').textContent = 'Copiază Link';
-            
+
             document.querySelectorAll('.lightbox-thumbnail').forEach(thumb => {
                 thumb.classList.toggle('border-blue-600', thumb.dataset.src === src);
                 thumb.classList.toggle('border-gray-500', thumb.dataset.src !== src);
@@ -1290,7 +1336,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 const imgElement = actionButton.tagName === 'IMG' ? actionButton : actionButton.querySelector('img');
                 const mainImageSrc = imgElement ? imgElement.src : null;
                 if (!mainImageSrc) return;
-                
+
                 const lightbox = document.getElementById('image-lightbox');
                 const mainImageEl = document.getElementById('lightbox-main-image');
                 const thumbsContainer = document.getElementById('lightbox-thumbs-container');
@@ -1300,26 +1346,26 @@ document.addEventListener('DOMContentLoaded', () => {
                 copyText.textContent = 'Copiază Link';
                 mainImageEl.src = mainImageSrc;
                 copyBtn.dataset.src = mainImageSrc;
-                
+
                 const currentImages = [...new Set(getCurrentImagesArray() || [])];
                 let thumbsHTML = '';
                 currentImages.forEach(img => {
                     const isSelected = img === mainImageSrc;
                     thumbsHTML += `
-                        <img data-action="select-lightbox-thumbnail" data-src="${img}" src="${img}" 
-                             class="w-full h-16 object-cover rounded-md cursor-pointer lightbox-thumbnail border-2 
+                        <img data-action="select-lightbox-thumbnail" data-src="${img}" src="${img}"
+                             class="w-full h-16 object-cover rounded-md cursor-pointer lightbox-thumbnail border-2
                              ${isSelected ? 'border-blue-600' : 'border-gray-500'}">
                     `;
                 });
                 thumbsContainer.innerHTML = thumbsHTML;
-                
+
                 lightbox.classList.remove('hidden');
             }
-            
+
             if (action === 'close-lightbox') {
                 document.getElementById('image-lightbox').classList.add('hidden');
             }
-            
+
             if (action === 'copy-lightbox-link') {
                 const src = actionButton.dataset.src;
                 navigator.clipboard.writeText(src).then(() => {
