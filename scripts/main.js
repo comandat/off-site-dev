@@ -46,7 +46,6 @@ document.addEventListener('DOMContentLoaded', () => {
         languageNameToCodeMap[name.toLowerCase()] = code.toUpperCase();
     }
 
-    // --- Funcțiile getLevenshteinDistance, fuzzySearch, etc. rămân neschimbate ---
     function getLevenshteinDistance(a, b) {
         if (a.length === 0) return b.length;
         if (b.length === 0) return a.length;
@@ -242,9 +241,7 @@ document.addEventListener('DOMContentLoaded', () => {
         sidebarButtons.forEach(btn => btn.classList.toggle('active-tab', btn.dataset.view === parentView));
     }
 
-
     const templates = {
-        // ... template comenzi (actualizat anterior) ...
         comenzi: () => {
             const commands = AppState.getCommands();
             const commandsHTML = commands.length > 0
@@ -280,9 +277,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 : `<p class="col-span-full text-gray-500">Nu există comenzi de afișat.</p>`;
             return `<div class="p-6 sm:p-8"><h2 class="text-3xl font-bold text-gray-800 mb-6">Panou de Comenzi</h2><div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">${commandsHTML}</div></div>`;
         },
-        // ... template import (neschimbat) ...
         import: () => `<div class="p-6 sm:p-8"><h2 class="text-3xl font-bold text-gray-800 mb-6">Import Comandă Nouă</h2><div class="max-w-md bg-white p-8 rounded-lg shadow-md"><form id="upload-form"><div class="mb-5"><label for="zip-file" class="block mb-2 text-sm font-medium">Manifest (.zip):</label><input type="file" id="zip-file" name="zipFile" accept=".zip" required class="w-full text-sm border-gray-300 rounded-lg cursor-pointer bg-gray-50"></div><div class="mb-6"><label for="pdf-file" class="block mb-2 text-sm font-medium">Factura (.pdf):</label><input type="file" id="pdf-file" name="pdfFile" accept=".pdf" required class="w-full text-sm border-gray-300 rounded-lg cursor-pointer bg-gray-50"></div><p id="upload-status" class="mt-4 text-center text-sm font-medium min-h-[20px]"></p><button id="upload-button" type="submit" class="w-full mt-2 flex justify-center items-center px-4 py-3 text-lg font-bold text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:bg-blue-300"><span class="button-text">Trimite fișierele 🚀</span><div class="button-loader hidden w-6 h-6 border-4 border-white border-t-transparent rounded-full animate-spin"></div></button></form></div></div>`,
-        // ... template paleti (actualizat anterior) ...
+
         paleti: (command, details) => {
             const paleti = {};
             command.products.forEach(p => {
@@ -303,8 +299,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 const firstProduct = products[0];
                 const firstProductDetails = firstProduct ? details[firstProduct.asin] : null;
                 const firstImage = firstProductDetails?.images?.[0] || '';
-                const readyClass = allReady ? 'bg-green-50' : 'bg-white';
-                const readyIcon = allReady ? '<span class="material-icons text-green-500 absolute top-2 right-2" title="Palet Gata">task_alt</span>' : '';
+                const readyClass = allReady ? 'bg-green-50' : 'bg-white'; // Verde deschis pentru palet gata
+                const readyIcon = allReady ? '<span class="material-icons text-green-500 absolute top-2 right-2" title="Palet Gata">task_alt</span>' : ''; // Bifă verde
 
                 return `
                 <div class="relative ${readyClass} p-4 rounded-lg shadow-sm cursor-pointer hover:shadow-md transition-shadow w-40 flex flex-col items-center" data-manifest-sku="${sku}">
@@ -328,39 +324,56 @@ document.addEventListener('DOMContentLoaded', () => {
             </header>
             <div class="p-6 sm:p-8"><div class="flex flex-wrap gap-4">${noResultsHTML}</div></div>`;
         },
-        // ... template produse (actualizat anterior) ...
-produse: (command, details, manifestSKU) => {
+
+        produse: (command, details, manifestSKU) => {
              let productsToShow = command.products.filter(p => {
                  const sku = p.manifestsku || 'No ManifestSKU';
                  return sku === manifestSKU;
              });
 
              productsToShow.sort((a, b) => {
-                 console.log(`Comparing ${a.asin} (${a.listingReady}) with ${b.asin} (${b.listingReady})`);
                  return (a.listingReady === b.listingReady) ? 0 : a.listingReady ? 1 : -1;
              });
-             console.log("Sorted products:", productsToShow);
 
+             // --- REFACTORIZARE PENTRU CLARITATE ȘI STILURI NOI ---
              const productsHTML = productsToShow.map(p => {
                 const d = details[p.asin];
-                // --- MODIFICARE AICI ---
-                const readyClass = p.listingReady ? 'bg-green-600 text-white' : 'bg-white'; // Fundal verde închis, text alb
-                const readyIcon = p.listingReady ? '<span class="material-icons text-white" title="Gata de listat">task_alt</span>' : ''; // Bifă albă
-                // --- SFÂRȘIT MODIFICARE ---
+                let cardBaseClasses = "flex items-center gap-4 p-3 rounded-md shadow-sm cursor-pointer transition duration-150";
+                let cardStyle = "";
+                let titleClasses = "font-semibold line-clamp-2"; // Titlu default negru
+                let asinClasses = "text-sm text-gray-500"; // ASIN gri default
+                let countClasses = "font-bold text-lg"; // Contor negru default
+                let iconColor = "text-gray-400"; // Chevron gri default
+                let readyIconHTML = "";
 
-                return `<div class="flex items-center gap-4 ${readyClass} p-3 rounded-md shadow-sm cursor-pointer hover:bg-gray-50" data-product-id="${p.id}">
-                            <img src="${d?.images?.[0] || ''}" class="w-16 h-16 object-cover rounded-md bg-gray-200">
-                            <div class="flex-1">
-                                <p class="font-semibold line-clamp-2">${d?.title || 'N/A'}</p>
-                                <p class="text-sm text-gray-500">${p.asin}</p>
-                            </div>
-                            <div class="text-right">
-                                <p class="font-bold text-lg">${p.found}/${p.expected}</p>
-                            </div>
-                            ${readyIcon}
-                            <span class="material-icons text-gray-400">chevron_right</span>
-                        </div>`;
+                if (p.listingReady) {
+                    cardBaseClasses += " text-white hover:brightness-90"; // Adaugă text alb și hover întunecat
+                    cardStyle = `style="background-color: #77f790;"`; // Setează fundalul specific #77f790
+                    asinClasses = "text-sm text-white"; // Schimbă culoarea ASIN în alb
+                    // Lăsăm titlul și count negre pentru contrast mai bun pe verdele deschis
+                    // titleClasses += " text-white"; // Comentat
+                    // countClasses += " text-white"; // Comentat
+                    iconColor = "text-white"; // Schimbă chevron în alb
+                    readyIconHTML = `<span class="material-icons text-white" title="Gata de listat">task_alt</span>`; // Bifă albă
+                } else {
+                    cardBaseClasses += " bg-white hover:bg-gray-50"; // Fundal alb și hover gri default
+                }
+
+                return `
+                    <div class="${cardBaseClasses}" ${cardStyle} data-product-id="${p.id}">
+                        <img src="${d?.images?.[0] || ''}" class="w-16 h-16 object-cover rounded-md bg-gray-200 flex-shrink-0"> {/* Adăugat flex-shrink-0 */}
+                        <div class="flex-1 overflow-hidden"> {/* Adăugat overflow-hidden */}
+                            <p class="${titleClasses}">${d?.title || 'N/A'}</p>
+                            <p class="${asinClasses}">${p.asin}</p>
+                        </div>
+                        <div class="text-right flex-shrink-0"> {/* Adăugat flex-shrink-0 */}
+                            <p class="${countClasses}">${p.found}/${p.expected}</p>
+                        </div>
+                        ${readyIconHTML}
+                        <span class="material-icons ${iconColor} flex-shrink-0">chevron_right</span> {/* Adăugat flex-shrink-0 */}
+                    </div>`;
             }).join('');
+             // --- SFÂRȘIT REFACTORIZARE ---
 
             const noResultsHTML = productsToShow.length === 0 ? `<p class="col-span-full text-gray-500">Nu s-au găsit produse care să corespundă căutării.</p>` : productsHTML;
 
@@ -375,7 +388,7 @@ produse: (command, details, manifestSKU) => {
             </header>
             <div class="p-4 space-y-2">${noResultsHTML}</div>`;
         },
-        // ... template competition (neschimbat) ...
+
         competition: (competitionData) => {
             let cardsHTML = '';
             for (let i = 1; i <= 5; i++) {
@@ -433,15 +446,13 @@ produse: (command, details, manifestSKU) => {
 
             return `<div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">${cardsHTML}</div>`;
         },
-        // ... template produsDetaliu (actualizat anterior) ...
-        produsDetaliu: (product, details, commandId) => {
 
+        produsDetaliu: (product, details, commandId) => {
             const languageButtons = Object.entries(languages).map(([code, name]) =>
                 `<a href="#" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 language-option" data-lang-code="${code}">${code.toUpperCase()}</a>`
             ).join('');
 
             const otherVersions = details.other_versions || {};
-
             const versionsButtons = Object.keys(otherVersions).map(key => {
                 const displayText = languageNameToCodeMap[key.toLowerCase()] || key.toUpperCase();
                 return `<button data-version-key="${key}" class="px-4 py-1.5 text-sm font-semibold text-gray-600 hover:bg-gray-100 rounded-md version-btn">${displayText}</button>`;
@@ -449,9 +460,7 @@ produse: (command, details, manifestSKU) => {
 
             state.descriptionEditorMode = 'raw';
 
-            // --- MODIFICARE: Determină starea butonului "Marchează Gata" ---
-            console.log("Rendering product details, product.listingReady:", product.listingReady); // Log status before rendering button
-            const isProductReady = product.listingReady === true; // Comparatie stricta cu boolean
+            const isProductReady = product.listingReady === true;
             const readyButtonText = isProductReady ? "Anulează Marcaj Gata" : "Marchează Gata";
             const readyButtonIcon = isProductReady ? "cancel" : "task_alt";
             const readyButtonBgColor = isProductReady ? "bg-yellow-500 hover:bg-yellow-600" : "bg-green-600 hover:bg-green-700";
@@ -466,7 +475,7 @@ produse: (command, details, manifestSKU) => {
                             <span class="text-sm">Traduceți</span>
                             <span class="material-icons text-base">expand_more</span>
                         </button>
-                        <div class="absolute right-0 mt-2 w-56 bg-white rounded-lg shadow-xl hidden dropdown-menu z-20 border border-gray-200">
+                         <div class="absolute right-0 mt-2 w-56 bg-white rounded-lg shadow-xl hidden dropdown-menu z-20 border border-gray-200">
                             <input type="text" id="language-search" placeholder="Caută o limbă..." class="w-full px-4 py-2 border-b border-gray-200 focus:outline-none">
                             <div id="language-list" class="max-h-60 overflow-y-auto">
                                 ${languageButtons}
@@ -548,8 +557,8 @@ produse: (command, details, manifestSKU) => {
                 </div>
             </div>`;
         }
-    };
 
+    };
 
     // --- Funcțiile saveCurrentTabData, loadTabData, sendReadyToList, fetchAndRenderCompetition rămân neschimbate ---
       function saveCurrentTabData() {
@@ -670,7 +679,7 @@ produse: (command, details, manifestSKU) => {
 
 
         try {
-            console.log("Sending payload to ready-to-list webhook:", payload); // Log payload
+            console.log("Sending payload to ready-to-list webhook:", payload);
             const response = await fetch(READY_TO_LIST_WEBHOOK_URL, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -684,18 +693,16 @@ produse: (command, details, manifestSKU) => {
             }
 
             const result = await response.json();
-             console.log("Webhook success response:", result); // Log success response
+             console.log("Webhook success response:", result);
 
-            // --- NOU: Șterge query-ul de căutare înainte de refresh ---
             state.currentSearchQuery = '';
             const searchInput = document.getElementById('product-search-input');
             if (searchInput) searchInput.value = '';
-            // --- SFÂRȘIT NOU ---
 
             await fetchDataAndSyncState(); // Re-fetch data
 
             const actionMessage = payload.setReadyStatus ? 'marcat' : 'demarcat';
-            // alert(`Acțiune (${actionMessage}) realizată cu succes!`); // Poate fi deranjant, o scoatem deocamdată
+            // alert(`Acțiune (${actionMessage}) realizată cu succes!`); // Poate fi deranjant
             return true;
 
         } catch (error) {
@@ -785,7 +792,6 @@ produse: (command, details, manifestSKU) => {
                 case 'produse':
                     const command = AppState.getCommands().find(c => c.id === context.commandId);
                     if (command && context.manifestSKU) {
-                         // Afișăm loader-ul standard text înainte de fetch
                          mainContent.innerHTML = `<div class="p-8 text-center text-gray-500">Se încarcă detaliile produselor...</div>`;
 
                         const asins = command.products.map(p => p.asin);
@@ -800,7 +806,6 @@ produse: (command, details, manifestSKU) => {
                             );
                             commandToRender = { ...command, products: filteredProducts };
                         }
-                         console.log("Products to render in 'produse' view:", commandToRender.products.filter(p => (p.manifestsku || 'No ManifestSKU') === context.manifestSKU)); // Log products for this pallet
                         html = templates.produse(commandToRender, details, context.manifestSKU);
                     } else {
                          console.error('Eroare: commandId sau manifestSKU lipsă');
@@ -808,7 +813,6 @@ produse: (command, details, manifestSKU) => {
                     }
                     break;
                 case 'produs-detaliu':
-                    // Afișăm loader-ul standard text înainte de fetch
                      mainContent.innerHTML = `<div class="p-8 text-center text-gray-500">Se încarcă detaliile produsului...</div>`;
                     state.competitionDataCache = null;
                     const cmd = AppState.getCommands().find(c => c.id === context.commandId);
@@ -817,7 +821,6 @@ produse: (command, details, manifestSKU) => {
                     }
 
                     if (product) {
-                         console.log("Found product in state for details view:", product); // Log product found
                         const detailsMap = await fetchProductDetailsInBulk([product.asin]);
                         const productDetails = detailsMap[product.asin];
 
@@ -831,7 +834,6 @@ produse: (command, details, manifestSKU) => {
 
                         html = templates.produsDetaliu(product, state.editedProductData, context.commandId);
                     } else {
-                         console.log("Product not found for details view", context); // Log if product not found
                          html = '<div class="p-6 text-red-500">Eroare: Produsul nu a fost găsit.</div>';
                     }
                     break;
@@ -865,7 +867,6 @@ produse: (command, details, manifestSKU) => {
         if (searchInput) {
             searchInput.value = state.currentSearchQuery;
              searchInput.setSelectionRange(searchInput.value.length, searchInput.value.length);
-
         }
 
         if (viewId === 'produs-detaliu' && product) {
@@ -903,7 +904,6 @@ produse: (command, details, manifestSKU) => {
             await renderView('paleti', { commandId: state.currentCommandId });
 
         } else if (palletCard) {
-            // state.currentSearchQuery = ''; // Nu resetăm căutarea când intrăm într-un palet
             state.currentManifestSKU = palletCard.dataset.manifestSku;
             state.currentProductId = null;
             await renderView('produse', { commandId: state.currentCommandId, manifestSKU: state.currentManifestSKU });
@@ -966,70 +966,37 @@ produse: (command, details, manifestSKU) => {
                 state.currentCommandId = null;
                 state.currentManifestSKU = null;
                 state.currentProductId = null;
-                state.currentSearchQuery = ''; // Resetăm căutarea la ieșire
+                state.currentSearchQuery = '';
                 await renderView('comenzi');
              }
             if (action === 'back-to-paleti') {
                 state.currentManifestSKU = null;
                 state.currentProductId = null;
-                 // state.currentSearchQuery = ''; // NU resetăm căutarea când ne întoarcem la paleți
                 await renderView('paleti', { commandId: state.currentCommandId });
             }
             if (action === 'back-to-produse') {
                 state.currentProductId = null;
-                 // state.currentSearchQuery = ''; // NU resetăm căutarea când ne întoarcem la produse
                 await renderView('produse', { commandId: state.currentCommandId, manifestSKU: state.currentManifestSKU });
             }
 
             if (action === 'edit-asin') {
                 const productsku = actionButton.dataset.productsku;
                 const oldAsin = actionButton.dataset.oldAsin;
-
                 const newAsin = prompt("Introduceți noul ASIN:", oldAsin);
-
-                if (!newAsin || newAsin.trim() === '' || newAsin.trim() === oldAsin) {
-                    return;
-                }
-
+                if (!newAsin || newAsin.trim() === '' || newAsin.trim() === oldAsin) return;
                 const confirmation = confirm("Atenție!\n\nSchimbarea ASIN-ului va reîncărca datele acestui produs și poate modifica titlul, pozele sau descrierea. Datele nesalvate (titlu, descriere, etc.) se vor pierde.\n\nSigur doriți să continuați?");
-
-                if (!confirmation) {
-                    return;
-                }
-
-                const payload = {
-                    productsku: productsku,
-                    asin_vechi: oldAsin,
-                    asin_nou: newAsin.trim(),
-                    orderId: state.currentCommandId
-                };
-
+                if (!confirmation) return;
+                const payload = { productsku: productsku, asin_vechi: oldAsin, asin_nou: newAsin.trim(), orderId: state.currentCommandId };
                 try {
-                    const response = await fetch(ASIN_UPDATE_WEBHOOK_URL, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify(payload)
-                    });
-
-                    if (!response.ok) {
-                        throw new Error(`Eroare HTTP: ${response.status}`);
-                    }
-
+                    const response = await fetch(ASIN_UPDATE_WEBHOOK_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+                    if (!response.ok) throw new Error(`Eroare HTTP: ${response.status}`);
                     const result = await response.json();
                     if (result.status === 'success') {
                         alert("ASIN-ul a fost actualizat cu succes! Se reîncarcă datele...");
-                        await fetchDataAndSyncState(); // Asigură preluarea datelor noi
-                        await renderView('produs-detaliu', { // Re-randează cu datele actualizate
-                            commandId: state.currentCommandId,
-                            productId: state.currentProductId // ID-ul produsului rămâne același
-                        });
-                    } else {
-                        alert(`Eroare la actualizare: ${result.message || 'Răspuns invalid de la server.'}`);
-                    }
-                } catch (error) {
-                    console.error('Eroare la actualizarea ASIN-ului:', error);
-                    alert(`A apărut o eroare de rețea: ${error.message}`);
-                }
+                        await fetchDataAndSyncState();
+                        await renderView('produs-detaliu', { commandId: state.currentCommandId, productId: state.currentProductId });
+                    } else { alert(`Eroare la actualizare: ${result.message || 'Răspuns invalid de la server.'}`); }
+                } catch (error) { console.error('Eroare la actualizarea ASIN-ului:', error); alert(`A apărut o eroare de rețea: ${error.message}`); }
             }
 
              if (action === 'ready-to-list-single') {
@@ -1039,21 +1006,11 @@ produse: (command, details, manifestSKU) => {
                 const currentStatus = actionButton.dataset.currentStatus === 'true';
                 const setReadyStatus = !currentStatus;
                 const confirmAction = setReadyStatus ? "marcați" : "anulați marcajul pentru";
-
                 if (confirm(`Sigur doriți să ${confirmAction} acest produs (${asin}) ca "Gata pentru Listat"?`)) {
-                    const payload = {
-                        orderId: orderId,
-                        pallet: palletSku || 'N/A',
-                        asin: asin,
-                        setReadyStatus: setReadyStatus
-                    };
+                    const payload = { orderId: orderId, pallet: palletSku || 'N/A', asin: asin, setReadyStatus: setReadyStatus };
                     const success = await sendReadyToList(payload, actionButton);
                     if (success) {
-                        // Re-randează view-ul curent DUPĂ ce datele au fost actualizate de sendReadyToList->fetchDataAndSyncState
-                        await renderView('produs-detaliu', {
-                            commandId: state.currentCommandId,
-                            productId: state.currentProductId
-                        });
+                        await renderView('produs-detaliu', { commandId: state.currentCommandId, productId: state.currentProductId });
                     }
                 }
             }
@@ -1064,19 +1021,12 @@ produse: (command, details, manifestSKU) => {
                 const currentStatus = actionButton.dataset.currentStatus === 'true';
                 const setReadyStatus = !currentStatus;
                 const confirmAction = setReadyStatus ? "marcați TOATĂ" : "anulați marcajul pentru TOATĂ";
-
                 const command = AppState.getCommands().find(c => c.id === commandId);
                 const commandName = command ? command.name : `Comanda ${commandId.substring(0, 6)}`;
-
                 if (confirm(`Sigur doriți să ${confirmAction} comanda ${commandName} ca "Gata pentru Listat"?`)) {
-                    const payload = {
-                        orderId: commandId,
-                        setReadyStatus: setReadyStatus
-                    };
-                    const success = await sendReadyToList(payload, actionButton); // Trimitem linkul <a> ca element
-                    if (success) {
-                        await renderView('comenzi'); // Re-randează view-ul DUPĂ update
-                    }
+                    const payload = { orderId: commandId, setReadyStatus: setReadyStatus };
+                    const success = await sendReadyToList(payload, actionButton);
+                    if (success) { await renderView('comenzi'); }
                 }
                 const menu = actionButton.closest('.dropdown-menu');
                 if(menu) menu.classList.add('hidden');
@@ -1099,10 +1049,7 @@ produse: (command, details, manifestSKU) => {
             if (action === 'add-image-url') {
                 let currentImages = getCurrentImagesArray();
                 if (!currentImages) currentImages = [];
-                if (currentImages.length >= 5) {
-                    alert("Puteți adăuga maxim 5 imagini.");
-                    return;
-                }
+                if (currentImages.length >= 5) { alert("Puteți adăuga maxim 5 imagini."); return; }
                 const newImageUrl = prompt("Vă rugăm introduceți URL-ul noii imagini:");
                 if (newImageUrl) {
                     currentImages.push(newImageUrl);
@@ -1123,9 +1070,7 @@ produse: (command, details, manifestSKU) => {
                     initializeSortable();
                 }
             }
-            if (action === 'translate-ai-images') {
-                alert('Funcționalitatea de traducere AI a imaginilor va fi implementată curând.');
-            }
+            if (action === 'translate-ai-images') { alert('Funcționalitatea de traducere AI a imaginilor va fi implementată curând.'); }
 
             if (action === 'refresh-ro-title') {
                 const refreshBtn = actionButton;
@@ -1136,8 +1081,7 @@ produse: (command, details, manifestSKU) => {
                 const competitionCache = state.competitionDataCache;
                 const currentAsin = document.getElementById('product-asin')?.value;
                 if (!originTitle || !originDescription || !competitionCache || !currentAsin || TITLE_GENERATION_WEBHOOK_URL === 'URL_AICI_PENTRU_GENERARE_TITLU') {
-                    alert('Eroare: Datele necesare (inclusiv ASIN) nu sunt disponibile sau URL-ul webhook nu este configurat.');
-                    return;
+                    alert('Eroare: Datele necesare (inclusiv ASIN) nu sunt disponibile sau URL-ul webhook nu este configurat.'); return;
                 }
                 refreshIcon.classList.add('hidden');
                 refreshSpinner.classList.remove('hidden');
@@ -1156,14 +1100,8 @@ produse: (command, details, manifestSKU) => {
                         if (!state.editedProductData.other_versions[roKey]) state.editedProductData.other_versions[roKey] = {};
                         state.editedProductData.other_versions[roKey].title = newTitle;
                     } else { throw new Error('Răspuns invalid de la server.'); }
-                } catch (error) {
-                    console.error('Eroare la generarea titlului:', error);
-                    alert(`A apărut o eroare la generarea titlului: ${error.message}`);
-                } finally {
-                    refreshIcon.classList.remove('hidden');
-                    refreshSpinner.classList.add('hidden');
-                    refreshBtn.disabled = false;
-                }
+                } catch (error) { console.error('Eroare la generarea titlului:', error); alert(`A apărut o eroare la generarea titlului: ${error.message}`);
+                } finally { refreshIcon.classList.remove('hidden'); refreshSpinner.classList.add('hidden'); refreshBtn.disabled = false; }
             }
 
             if (action === 'save-product') {
@@ -1187,11 +1125,7 @@ produse: (command, details, manifestSKU) => {
                 if (success) {
                     alert('Salvat cu succes!');
                     await renderView('produse', { commandId: state.currentCommandId, manifestSKU: state.currentManifestSKU });
-                } else {
-                    alert('Eroare la salvare!');
-                    actionButton.textContent = 'Salvează Modificările';
-                    actionButton.disabled = false;
-                }
+                } else { alert('Eroare la salvare!'); actionButton.textContent = 'Salvează Modificările'; actionButton.disabled = false; }
             }
 
         } else if (languageOption) {
@@ -1211,7 +1145,7 @@ produse: (command, details, manifestSKU) => {
             allMenus.forEach(menu => { if (menu !== dropdownMenu) { menu.classList.add('hidden'); } });
             dropdownMenu.classList.toggle('hidden');
         } else if (!target.closest('.dropdown')) {
-            if (!target.closest('.dropdown-menu a')) { // Nu închide dacă se dă click pe linkul din meniu
+            if (!target.closest('.dropdown-menu a')) {
                document.querySelectorAll('.dropdown-menu').forEach(menu => menu.classList.add('hidden'));
             }
         }
