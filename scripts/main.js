@@ -10,6 +10,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const TITLE_GENERATION_WEBHOOK_URL = 'https://automatizare.comandat.ro/webhook/0bc8e16e-2ba8-4c3d-ba66-9eb8898ac0ef'; 
     // --- NOU: URL pentru update ASIN ---
     const ASIN_UPDATE_WEBHOOK_URL = 'https://automatizare.comandat.ro/webhook/5f107bd7-cc2b-40b7-8bbf-5e3a48667405';
+    // --- NOU: URL pentru Gata de Listat ---
+    const READY_TO_LIST_WEBHOOK_URL = 'https://automatizare.comandat.ro/webhook/124682e2-5f91-4c0a-adf6-4cedf16c2c19';
 
 
     const state = {
@@ -243,7 +245,26 @@ document.addEventListener('DOMContentLoaded', () => {
         comenzi: () => {
             const commands = AppState.getCommands();
             const commandsHTML = commands.length > 0
-                ? commands.map(cmd => `<div class="bg-white p-4 rounded-lg shadow-sm cursor-pointer hover:shadow-md transition-shadow" data-command-id="${cmd.id}"><h3 class="font-bold text-gray-800">${cmd.name}</h3><p class="text-sm text-gray-500">${cmd.products.length} produse</p></div>`).join('')
+                ? commands.map(cmd => `
+                    <div class="bg-white p-4 rounded-lg shadow-sm hover:shadow-md transition-shadow relative">
+                        <div class="cursor-pointer" data-command-id="${cmd.id}">
+                            <h3 class="font-bold text-gray-800 pr-10">${cmd.name}</h3>
+                            <p class="text-sm text-gray-500">${cmd.products.length} produse</p>
+                        </div>
+                        
+                        <div class="absolute top-2 right-2 dropdown command-options-dropdown">
+                            <button class="p-2 rounded-full hover:bg-gray-200 dropdown-toggle">
+                                <span class="material-icons text-gray-600">more_vert</span>
+                            </button>
+                            <div class="absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-xl hidden dropdown-menu z-20 border border-gray-200">
+                                <a href="#" data-action="ready-to-list-command" data-command-id="${cmd.id}" class="flex items-center space-x-2 block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">
+                                    <span class="material-icons text-base text-green-600">task_alt</span>
+                                    <span>Gata pentru Listat</span>
+                                </a>
+                                </div>
+                        </div>
+                    </div>
+                `).join('')
                 : `<p class="col-span-full text-gray-500">Nu există comenzi de afișat.</p>`;
             return `<div class="p-6 sm:p-8"><h2 class="text-3xl font-bold text-gray-800 mb-6">Panou de Comenzi</h2><div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">${commandsHTML}</div></div>`;
         },
@@ -396,6 +417,12 @@ document.addEventListener('DOMContentLoaded', () => {
                             </div>
                         </div>
                     </div>
+                    
+                    <button data-action="ready-to-list-single" data-asin="${product.asin}" class="px-4 py-2 bg-green-600 text-white rounded-lg font-semibold hover:bg-green-700 text-sm flex items-center space-x-2">
+                        <span class="material-icons text-base">task_alt</span>
+                        <span>Gata pentru Listat</span>
+                    </button>
+
                     <button data-action="save-product" class="px-6 py-2 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700">Salvează Modificările</button>
                 </div>
             </header>
@@ -555,6 +582,51 @@ document.addEventListener('DOMContentLoaded', () => {
             refreshBtn.classList.toggle('hidden', !isRomanianTab);
         }
     }
+
+    /**
+     * --- NOU: Funcție helper pentru trimiterea ASIN-urilor "Gata de Listat" ---
+     * @param {string[]} asins - O listă de string-uri ASIN
+     * @param {HTMLElement} button - Butonul care a inițiat acțiunea (pentru feedback vizual)
+     */
+    async function sendReadyToList(asins, button) {
+        if (!asins || asins.length === 0) {
+            alert('Nu există ASIN-uri de trimis.');
+            return false;
+        }
+
+        let originalText = '';
+        if (button) {
+            originalText = button.innerHTML;
+            button.disabled = true;
+            button.innerHTML = '<span class="text-sm">Se trimite...</span>';
+        }
+
+        try {
+            const response = await fetch(READY_TO_LIST_WEBHOOK_URL, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ asins: asins })
+            });
+
+            if (!response.ok) {
+                throw new Error(`Eroare HTTP: ${response.status}`);
+            }
+
+            const result = await response.json();
+            alert('Produsele au fost marcate ca "Gata pentru Listat" cu succes!');
+            return true;
+
+        } catch (error) {
+            console.error('Eroare la trimiterea "Gata pentru Listat":', error);
+            alert(`A apărut o eroare: ${error.message}`);
+            return false;
+        } finally {
+            if (button) {
+                button.disabled = false;
+                button.innerHTML = originalText;
+            }
+        }
+    }
     
     async function fetchAndRenderCompetition(asin) {
         const container = document.getElementById('competition-container');
@@ -704,7 +776,8 @@ document.addEventListener('DOMContentLoaded', () => {
     mainContent.addEventListener('click', async (event) => {
         const target = event.target;
         
-        const commandCard = target.closest('[data-command-id]');
+        // --- MODIFICARE: Am scos data-command-id de pe cardul principal, l-am lăsat doar pe zona de text ---
+        const commandCard = target.closest('[data-command-id]:not([data-action])');
         const palletCard = target.closest('[data-manifest-sku]');
         const productCard = target.closest('[data-product-id]');
         const actionButton = target.closest('[data-action]');
@@ -848,6 +921,36 @@ document.addEventListener('DOMContentLoaded', () => {
                     alert(`A apărut o eroare de rețea: ${error.message}`);
                 }
             }
+            
+            // --- NOU: HANDLER PENTRU "GATA PENTRU LISTAT" (SINGLE) ---
+            if (action === 'ready-to-list-single') {
+                const asin = actionButton.dataset.asin;
+                if (confirm(`Sigur doriți să marcați acest produs (${asin}) ca "Gata pentru Listat"?`)) {
+                    await sendReadyToList([asin], actionButton);
+                }
+            }
+
+            // --- NOU: HANDLER PENTRU "GATA PENTRU LISTAT" (COMMAND) ---
+            if (action === 'ready-to-list-command') {
+                event.preventDefault(); // Previne acțiunea default a link-ului <a>
+                const commandId = actionButton.dataset.commandId;
+                const command = AppState.getCommands().find(c => c.id === commandId);
+                
+                if (!command) {
+                    alert('Eroare: Comanda nu a fost găsită.');
+                    return;
+                }
+                
+                const asins = [...new Set(command.products.map(p => p.asin))]; // Trimite doar ASIN-uri unice
+                
+                if (confirm(`Sigur doriți să marcați toate cele ${asins.length} produse unice din comanda ${command.name} ca "Gata pentru Listat"?`)) {
+                    await sendReadyToList(asins, actionButton);
+                }
+                // Ascunde meniul după click
+                const menu = actionButton.closest('.dropdown-menu');
+                if(menu) menu.classList.add('hidden');
+            }
+
 
             if (action === 'delete-image') {
                 const imageSrc = actionButton.dataset.imageSrc;
@@ -1021,6 +1124,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
         if (dropdownToggle) {
             const dropdownMenu = dropdownToggle.nextElementSibling;
+            // --- MODIFICARE: Închide toate celelalte meniuri înainte de a-l deschide pe cel curent ---
+            const allMenus = document.querySelectorAll('.dropdown-menu');
+            allMenus.forEach(menu => {
+                if (menu !== dropdownMenu) {
+                    menu.classList.add('hidden');
+                }
+            });
             dropdownMenu.classList.toggle('hidden');
         } else if (!target.closest('.dropdown')) {
             document.querySelectorAll('.dropdown-menu').forEach(menu => menu.classList.add('hidden'));
@@ -1146,6 +1256,26 @@ document.addEventListener('DOMContentLoaded', () => {
             } finally { uploadBtn.disabled = false; btnText.classList.remove('hidden'); btnLoader.classList.add('hidden'); }
         }
     });
+
+    // --- NOU: Click listener global pentru a închide meniurile dropdown ---
+    document.addEventListener('click', (event) => {
+        // Închide meniurile dropdown dacă se dă click în afara lor
+        if (!event.target.closest('.dropdown')) {
+            document.querySelectorAll('.dropdown-menu').forEach(menu => menu.classList.add('hidden'));
+        }
+
+        // Logica pentru lightbox (deja existentă)
+        const actionButton = event.target.closest('[data-action]');
+        const lightboxThumbnail = event.target.closest('[data-action="select-lightbox-thumbnail"]');
+
+        if (lightboxThumbnail) {
+             // ... (codul existent pentru lightbox thumbnail)
+        }
+
+        if (actionButton) {
+             // ... (codul existent pentru acțiunile lightbox 'open', 'close', 'copy')
+        }
+    }, true); // Folosim 'true' pentru a rula în faza de captură, asigurând că rulează înaintea altor click-uri
 
     renderView('comenzi');
 });
