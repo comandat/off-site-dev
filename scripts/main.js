@@ -329,22 +329,24 @@ document.addEventListener('DOMContentLoaded', () => {
             <div class="p-6 sm:p-8"><div class="flex flex-wrap gap-4">${noResultsHTML}</div></div>`;
         },
         // ... template produse (actualizat anterior) ...
-        produse: (command, details, manifestSKU) => {
+produse: (command, details, manifestSKU) => {
              let productsToShow = command.products.filter(p => {
                  const sku = p.manifestsku || 'No ManifestSKU';
                  return sku === manifestSKU;
              });
 
              productsToShow.sort((a, b) => {
-                 console.log(`Comparing ${a.asin} (${a.listingReady}) with ${b.asin} (${b.listingReady})`); // Log comparison
+                 console.log(`Comparing ${a.asin} (${a.listingReady}) with ${b.asin} (${b.listingReady})`);
                  return (a.listingReady === b.listingReady) ? 0 : a.listingReady ? 1 : -1;
              });
-             console.log("Sorted products:", productsToShow); // Log sorted list
+             console.log("Sorted products:", productsToShow);
 
              const productsHTML = productsToShow.map(p => {
                 const d = details[p.asin];
-                const readyClass = p.listingReady ? 'bg-green-50' : 'bg-white';
-                const readyIcon = p.listingReady ? '<span class="material-icons text-green-500" title="Gata de listat">task_alt</span>' : '';
+                // --- MODIFICARE AICI ---
+                const readyClass = p.listingReady ? 'bg-green-600 text-white' : 'bg-white'; // Fundal verde închis, text alb
+                const readyIcon = p.listingReady ? '<span class="material-icons text-white" title="Gata de listat">task_alt</span>' : ''; // Bifă albă
+                // --- SFÂRȘIT MODIFICARE ---
 
                 return `<div class="flex items-center gap-4 ${readyClass} p-3 rounded-md shadow-sm cursor-pointer hover:bg-gray-50" data-product-id="${p.id}">
                             <img src="${d?.images?.[0] || ''}" class="w-16 h-16 object-cover rounded-md bg-gray-200">
