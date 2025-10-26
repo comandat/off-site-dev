@@ -36,7 +36,7 @@ function processServerData(data) {
             expected: p.orderedquantity || 0,
             found: (p.bncondition || 0) + (p.vgcondition || 0) + (p.gcondition || 0) + (p.broken || 0),
             manifestsku: p.manifestsku || null,
-            listingReady: p.listingReady || false // <-- MODIFICARE: Am adăugat listingReady
+            listingReady: p.listingready || false // <-- MODIFICARE: Am adăugat listingReady
         }))
     }));
 }
