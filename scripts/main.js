@@ -1200,8 +1200,70 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
+    // --- BLOCUL DUPLICAT A FOST ȘTERS DE AICI ---
+
+    mainContent.addEventListener('input', async (event) => {
+        if (event.target.id === 'language-search') {
+            const filter = event.target.value.toLowerCase();
+            const links = document.querySelectorAll('#language-list .language-option');
+            links.forEach(link => {
+                const text = link.textContent.toLowerCase();
+                link.style.display = text.includes(filter) ? '' : 'none';
+            });
+        }
+        else if (event.target.id === 'product-search-input') {
+            state.currentSearchQuery = event.target.value;
+            state.productScrollPosition = 0; 
+
+            if (state.searchTimeout) {
+                clearTimeout(state.searchTimeout);
+            }
+            
+            state.searchTimeout = setTimeout(async () => {
+                const currentView = state.currentView;
+                
+                if (currentView === 'paleti') {
+                    await renderView('paleti', { commandId: state.currentCommandId });
+                } else if (currentView === 'produse') {
+                    await renderView('produse', { commandId: state.currentCommandId, manifestSKU: state.currentManifestSKU });
+                }
+
+                const searchInput = document.getElementById('product-search-input');
+                if (searchInput) {
+                    searchInput.focus();
+                    searchInput.setSelectionRange(searchInput.value.length, searchInput.value.length);
+                }
+            }, 300); 
+        }
+    });
+    
+    mainContent.addEventListener('submit', async (event) => {
+        if (event.target.id === 'upload-form') {
+            event.preventDefault();
+            const uploadBtn = document.getElementById('upload-button'), btnText = uploadBtn.querySelector('.button-text'), btnLoader = uploadBtn.querySelector('.button-loader'), statusEl = document.getElementById('upload-status'), formData = new FormData(event.target);
+            if (!formData.get('zipFile')?.size || !formData.get('pdfFile')?.size) { statusEl.textContent = 'Selectează ambele fișiere.'; statusEl.className = 'text-red-600'; return; }
+            uploadBtn.disabled = true; btnText.classList.add('hidden'); btnLoader.classList.remove('hidden'); statusEl.textContent = 'Se trimit fișierele...'; statusEl.className = '';
+            try {
+                const response = await fetch(N8N_UPLOAD_WEBHOOK_URL, { method: 'POST', body: formData });
+                if (!response.ok) throw new Error(`Eroare HTTP: ${response.status}`);
+                const resData = await response.json();
+                if (resData.status === 'success') { statusEl.textContent = 'Comanda a fost importată!'; statusEl.className = 'text-green-600'; event.target.reset(); await renderView('comenzi'); } else throw new Error('Eroare server.');
+            } catch (error) { statusEl.textContent = 'A apărut o eroare.'; statusEl.className = 'text-red-600';
+            } finally { uploadBtn.disabled = false; btnText.classList.remove('hidden'); btnLoader.classList.add('hidden'); }
+        }
+    });
+
+    // --- LISTENER GLOBAL UNIFICAT (CORECTAT) ---
+    // Acest listener gestionează atât închiderea meniurilor dropdown, cât și logica lightbox.
     document.addEventListener('click', (event) => {
         const target = event.target;
+
+        // 1. Logica pentru închiderea meniurilor dropdown
+        if (!target.closest('.dropdown')) {
+            document.querySelectorAll('.dropdown-menu').forEach(menu => menu.classList.add('hidden'));
+        }
+
+        // 2. Logica pentru Lightbox
         const actionButton = target.closest('[data-action]');
         const lightboxThumbnail = target.closest('[data-action="select-lightbox-thumbnail"]');
 
@@ -1266,77 +1328,6 @@ document.addEventListener('DOMContentLoaded', () => {
                     alert('Eroare la copiere link.');
                 });
             }
-        }
-    });
-
-    mainContent.addEventListener('input', async (event) => {
-        if (event.target.id === 'language-search') {
-            const filter = event.target.value.toLowerCase();
-            const links = document.querySelectorAll('#language-list .language-option');
-            links.forEach(link => {
-                const text = link.textContent.toLowerCase();
-                link.style.display = text.includes(filter) ? '' : 'none';
-            });
-        }
-        else if (event.target.id === 'product-search-input') {
-            state.currentSearchQuery = event.target.value;
-            state.productScrollPosition = 0; 
-
-            if (state.searchTimeout) {
-                clearTimeout(state.searchTimeout);
-            }
-            
-            state.searchTimeout = setTimeout(async () => {
-                const currentView = state.currentView;
-                
-                if (currentView === 'paleti') {
-                    await renderView('paleti', { commandId: state.currentCommandId });
-                } else if (currentView === 'produse') {
-                    await renderView('produse', { commandId: state.currentCommandId, manifestSKU: state.currentManifestSKU });
-                }
-
-                const searchInput = document.getElementById('product-search-input');
-                if (searchInput) {
-                    searchInput.focus();
-                    searchInput.setSelectionRange(searchInput.value.length, searchInput.value.length);
-                }
-            }, 300); 
-        }
-    });
-    
-    mainContent.addEventListener('submit', async (event) => {
-        if (event.target.id === 'upload-form') {
-            event.preventDefault();
-            const uploadBtn = document.getElementById('upload-button'), btnText = uploadBtn.querySelector('.button-text'), btnLoader = uploadBtn.querySelector('.button-loader'), statusEl = document.getElementById('upload-status'), formData = new FormData(event.target);
-            if (!formData.get('zipFile')?.size || !formData.get('pdfFile')?.size) { statusEl.textContent = 'Selectează ambele fișiere.'; statusEl.className = 'text-red-600'; return; }
-            uploadBtn.disabled = true; btnText.classList.add('hidden'); btnLoader.classList.remove('hidden'); statusEl.textContent = 'Se trimit fișierele...'; statusEl.className = '';
-            try {
-                const response = await fetch(N8N_UPLOAD_WEBHOOK_URL, { method: 'POST', body: formData });
-                if (!response.ok) throw new Error(`Eroare HTTP: ${response.status}`);
-                const resData = await response.json();
-                if (resData.status === 'success') { statusEl.textContent = 'Comanda a fost importată!'; statusEl.className = 'text-green-600'; event.target.reset(); await renderView('comenzi'); } else throw new Error('Eroare server.');
-            } catch (error) { statusEl.textContent = 'A apărut o eroare.'; statusEl.className = 'text-red-600';
-            } finally { uploadBtn.disabled = false; btnText.classList.remove('hidden'); btnLoader.classList.add('hidden'); }
-        }
-    });
-
-    // --- NOU: Click listener global pentru a închide meniurile dropdown ---
-    document.addEventListener('click', (event) => {
-        // Închide meniurile dropdown dacă se dă click în afara lor
-        if (!event.target.closest('.dropdown')) {
-            document.querySelectorAll('.dropdown-menu').forEach(menu => menu.classList.add('hidden'));
-        }
-
-        // Logica pentru lightbox (deja existentă)
-        const actionButton = event.target.closest('[data-action]');
-        const lightboxThumbnail = event.target.closest('[data-action="select-lightbox-thumbnail"]');
-
-        if (lightboxThumbnail) {
-             // ... (codul existent pentru lightbox thumbnail)
-        }
-
-        if (actionButton) {
-             // ... (codul existent pentru acțiunile lightbox 'open', 'close', 'copy')
         }
     }, true); // Folosim 'true' pentru a rula în faza de captură, asigurând că rulează înaintea altor click-uri
 
