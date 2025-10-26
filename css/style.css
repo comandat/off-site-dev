@@ -30,3 +30,9 @@
 .collapsible-header.open .arrow {
     transform: rotate(0deg);
 }
+
+/* NOU: Asigură-te că meniul dropdown de pe cardul comenzii este vizibil */
+.command-options-dropdown .dropdown-menu {
+    position: absolute;
+    /* Tailwind 'z-20' este z-index: 20; */
+}
