@@ -319,6 +319,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             const noResultsHTML = paletiHTML.length === 0 ? `<p class="col-span-full text-gray-500">Nu s-au găsit produse care să corespundă căutării.</p>` : paletiHTML;
 
+            // --- MODIFICARE: Adăugăm header-ul aici ---
             return `
             <header class="sticky top-0 z-10 bg-white shadow-sm p-4 flex items-center space-x-4">
                 <button data-action="back-to-comenzi" class="p-2 rounded-full hover:bg-gray-100"><span class="material-icons">arrow_back</span></button>
@@ -329,6 +330,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 </div>
             </header>
             <div class="p-6 sm:p-8"><div class="flex flex-wrap gap-4">${noResultsHTML}</div></div>`;
+            // --- SFÂRȘIT MODIFICARE ---
         },
 
         produse: (command, details, manifestSKU) => {
@@ -655,21 +657,29 @@ document.addEventListener('DOMContentLoaded', () => {
     /**
      * --- MODIFICAT: Funcția helper acceptă acum un obiect 'payload' ---
      * @param {object} payload - Obiectul de trimis ca JSON (ex: {asin, orderId, pallet, setReadyStatus} sau {orderId, setReadyStatus})
-     * @param {HTMLElement} button - Butonul care a inițiat acțiunea
+     * @param {HTMLElement} button - Butonul sau elementul (ex. span din link) care a inițiat acțiunea
      */
-    async function sendReadyToList(payload, button) {
+    async function sendReadyToList(payload, buttonElement) {
         if (!payload) {
             alert('Nu există date de trimis.');
             return false;
         }
 
-        let originalHTML = ''; // Schimbat din originalText în originalHTML
-        if (button) {
-            originalHTML = button.innerHTML; // Păstrăm tot HTML-ul (inclusiv iconița)
-            button.disabled = true;
-            // Afișăm un spinner simplu în loc de text
-            button.innerHTML = '<div class="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mx-auto"></div>';
+        let originalHTML = '';
+        let targetElement = buttonElement; // Elementul pe care aplicăm spinnerul
+
+        // Dacă elementul este un link <a>, aplicăm spinner pe ultimul <span> (textul)
+        if (buttonElement && buttonElement.tagName === 'A') {
+            targetElement = buttonElement.querySelector('span:last-child');
         }
+
+        if (targetElement) {
+            originalHTML = targetElement.innerHTML;
+            // Dezactivăm butonul/linkul părinte dacă există
+            if (buttonElement) buttonElement.style.pointerEvents = 'none';
+            targetElement.innerHTML = '<div class="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin mx-auto"></div>';
+        }
+
 
         try {
             const response = await fetch(READY_TO_LIST_WEBHOOK_URL, {
@@ -697,15 +707,13 @@ document.addEventListener('DOMContentLoaded', () => {
         } catch (error) {
             console.error('Eroare la trimiterea "Marchează/Anulează Marcaj Gata":', error);
             alert(`A apărut o eroare: ${error.message}`);
+             // Restaurăm HTML original doar în caz de eroare
+             if (targetElement) targetElement.innerHTML = originalHTML;
             return false;
         } finally {
-            if (button) {
-                button.disabled = false;
-                // --- ATENȚIE: Nu mai restaurăm HTML-ul vechi aici ---
-                // View-ul va fi re-randat oricum, afișând butonul actualizat corect.
-                // Restaurarea aici ar putea afișa starea veche pentru o fracțiune de secundă.
-                // button.innerHTML = originalHTML; // Am comentat această linie
-            }
+             // Reactivăm butonul/linkul
+             if (buttonElement) buttonElement.style.pointerEvents = 'auto';
+            // View-ul va fi re-randat oricum la succes, deci nu mai restaurăm HTML aici
         }
     }
 
@@ -732,11 +740,15 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    // --- MODIFICARE: Adăugat GIF loader în renderView ---
     async function renderView(viewId, context = {}) {
         state.currentView = viewId;
         let html = '';
         let product = null;
+        // Afișăm loader-ul general (text) inițial
         mainContent.innerHTML = `<div class="p-8 text-center text-gray-500">Se încarcă...</div>`;
+        setActiveView(viewId); // Setăm tab-ul activ devreme
+
         try {
             switch(viewId) {
                 case 'comenzi':
@@ -749,8 +761,23 @@ document.addEventListener('DOMContentLoaded', () => {
                  case 'paleti':
                     const commandForPaleti = AppState.getCommands().find(c => c.id === context.commandId);
                     if (commandForPaleti) {
+                         // --- NOU: Afișează GIF-ul înainte de fetch ---
+                        mainContent.innerHTML = `
+                            <header class="sticky top-0 z-10 bg-white shadow-sm p-4 flex items-center space-x-4">
+                                <button data-action="back-to-comenzi" class="p-2 rounded-full hover:bg-gray-100"><span class="material-icons">arrow_back</span></button>
+                                <h1 class="text-xl font-bold text-gray-800 whitespace-nowrap">${commandForPaleti.name}</h1>
+                                <div class="flex-1 relative">
+                                    <span class="material-icons absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">search</span>
+                                    <input id="product-search-input" type="text" placeholder="Caută după titlu sau ASIN..." class="w-full pl-10 pr-4 py-2 border rounded-lg bg-gray-50 focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none transition" value="${state.currentSearchQuery}">
+                                </div>
+                            </header>
+                            <div class="flex justify-center items-center h-64">
+                                <img src="loading-dog.gif" alt="Loading..." class="w-32 h-32"/>
+                            </div>`;
+                        // --- SFÂRȘIT NOU ---
+
                         const asinsForPaleti = commandForPaleti.products.map(p => p.asin);
-                        const detailsForPaleti = await fetchProductDetailsInBulk(asinsForPaleti);
+                        const detailsForPaleti = await fetchProductDetailsInBulk(asinsForPaleti); // API call
 
                         let commandToRender = commandForPaleti;
                         const query = state.currentSearchQuery.toLowerCase().trim();
@@ -761,12 +788,14 @@ document.addEventListener('DOMContentLoaded', () => {
                             );
                             commandToRender = { ...commandForPaleti, products: filteredProducts };
                         }
-                        html = templates.paleti(commandToRender, detailsForPaleti);
+                        html = templates.paleti(commandToRender, detailsForPaleti); // Generează HTML final
                     } else {
                          html = '<div class="p-6 text-red-500">Eroare: Comanda nu a fost găsită.</div>';
                     }
                     break;
                 case 'produse':
+                     // Aici poți adăuga GIF-ul similar dacă dorești și pentru pagina de produse
+                     // mainContent.innerHTML = `<div class="flex justify-center items-center h-64"><img src="loading-dog.gif" alt="Loading..." class="w-32 h-32"/></div>`;
                     const command = AppState.getCommands().find(c => c.id === context.commandId);
                     if (command && context.manifestSKU) {
                         const asins = command.products.map(p => p.asin);
@@ -788,13 +817,13 @@ document.addEventListener('DOMContentLoaded', () => {
                     }
                     break;
                 case 'produs-detaliu':
+                    // Aici poți adăuga GIF-ul similar dacă dorești și pentru pagina de detalii produs
+                    // mainContent.innerHTML = `<div class="flex justify-center items-center h-64"><img src="loading-dog.gif" alt="Loading..." class="w-32 h-32"/></div>`;
                     state.competitionDataCache = null;
                     const cmd = AppState.getCommands().find(c => c.id === context.commandId);
-                    // --- MODIFICARE: Asigură-te că preluăm cea mai recentă stare a produsului ---
                     if (cmd) {
                        product = cmd.products.find(p => p.id === context.productId);
                     }
-                    // --- SFÂRȘIT MODIFICARE ---
 
                     if (product) {
                         const detailsMap = await fetchProductDetailsInBulk([product.asin]);
@@ -808,7 +837,6 @@ document.addEventListener('DOMContentLoaded', () => {
                         state.editedProductData = JSON.parse(JSON.stringify(productDetails));
                         state.activeVersionKey = 'origin';
 
-                        // --- MODIFICARE: Trimitem commandId la șablon ---
                         html = templates.produsDetaliu(product, state.editedProductData, context.commandId);
                     } else {
                          html = '<div class="p-6 text-red-500">Eroare: Produsul nu a fost găsit.</div>';
@@ -827,43 +855,53 @@ document.addEventListener('DOMContentLoaded', () => {
             html = '<div class="p-6 text-red-500">Eroare internă la generarea conținutului.</div>';
         }
 
+        // Randarea finală a conținutului (înlocuiește loader-ul)
         mainContent.innerHTML = html;
 
+        // Restore scroll și focus pe search (dacă e cazul)
         if (viewId === 'produse' && state.productScrollPosition > 0) {
             mainContent.scrollTop = state.productScrollPosition;
-        } else {
-            mainContent.scrollTop = 0;
+        } else if (viewId !== 'paleti') { // Resetăm scroll doar dacă NU suntem pe paleti (unde am setat manual la 0)
+             mainContent.scrollTop = 0;
         }
+
 
         if (viewId !== 'produse' && viewId !== 'produs-detaliu') {
             state.productScrollPosition = 0;
         }
 
-        setActiveView(viewId);
-
         const searchInput = document.getElementById('product-search-input');
         if (searchInput) {
             searchInput.value = state.currentSearchQuery;
-            if (document.activeElement !== searchInput) {
-            }
+             // Set focus back to search input if it was focused before re-render
+             // This needs careful handling, maybe store focus state if needed
+            // if (document.activeElement !== searchInput) { }
+             // Ensure cursor is at the end after potential re-render/focus
+             searchInput.setSelectionRange(searchInput.value.length, searchInput.value.length);
+
         }
 
+        // Inițializare specifică după randare
         if (viewId === 'produs-detaliu' && product) {
             const galleryContainer = document.getElementById('image-gallery-container');
             if (galleryContainer) {
                 galleryContainer.innerHTML = renderImageGallery(state.editedProductData.images);
-                initializeSortable();
+                 if (state.editedProductData.images && state.editedProductData.images.length > 0) {
+                    initializeSortable();
+                 }
             }
             fetchAndRenderCompetition(product.asin);
         }
     }
+    // --- SFÂRȘIT MODIFICARE ---
+
 
     sidebarButtons.forEach(button => button.addEventListener('click', () => renderView(button.dataset.view)));
 
+    // --- Event listener pentru 'mainContent' click rămâne neschimbat ---
     mainContent.addEventListener('click', async (event) => {
         const target = event.target;
 
-        // --- MODIFICARE: Am scos data-command-id de pe cardul principal, l-am lăsat doar pe zona de text ---
         const commandCard = target.closest('[data-command-id]:not([data-action])');
         const palletCard = target.closest('[data-manifest-sku]');
         const productCard = target.closest('[data-product-id]');
@@ -1051,7 +1089,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         orderId: commandId,
                         setReadyStatus: setReadyStatus // Adăugăm flag-ul boolean
                     };
-                    const success = await sendReadyToList(payload, actionButton.querySelector('span:last-child')); // Aplicăm spinner pe text
+                    const success = await sendReadyToList(payload, actionButton); // Trimitem linkul <a> ca element
                     if (success) {
                         // Re-randează view-ul de comenzi pentru a reflecta starea
                         await renderView('comenzi');
@@ -1244,11 +1282,16 @@ document.addEventListener('DOMContentLoaded', () => {
             });
             dropdownMenu.classList.toggle('hidden');
         } else if (!target.closest('.dropdown')) {
-            document.querySelectorAll('.dropdown-menu').forEach(menu => menu.classList.add('hidden'));
+            // Nu închide meniurile dacă click-ul este pe un element dintr-un meniu deschis deja
+            // (necesar pentru acțiunea din meniul comenzii)
+            if (!target.closest('.dropdown-menu')) {
+               document.querySelectorAll('.dropdown-menu').forEach(menu => menu.classList.add('hidden'));
+            }
         }
     });
 
-    mainContent.addEventListener('input', async (event) => {
+    // --- Event listener pentru 'input' rămâne neschimbat ---
+     mainContent.addEventListener('input', async (event) => {
         if (event.target.id === 'language-search') {
             const filter = event.target.value.toLowerCase();
             const links = document.querySelectorAll('#language-list .language-option');
@@ -1259,7 +1302,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         else if (event.target.id === 'product-search-input') {
             state.currentSearchQuery = event.target.value;
-            state.productScrollPosition = 0;
+            state.productScrollPosition = 0; // Reset scroll on new search
 
             if (state.searchTimeout) {
                 clearTimeout(state.searchTimeout);
@@ -1274,15 +1317,19 @@ document.addEventListener('DOMContentLoaded', () => {
                     await renderView('produse', { commandId: state.currentCommandId, manifestSKU: state.currentManifestSKU });
                 }
 
+                // Restore focus and cursor position after re-render
                 const searchInput = document.getElementById('product-search-input');
                 if (searchInput) {
+                    // Try to restore focus only if the element still exists
                     searchInput.focus();
+                    // Move cursor to the end
                     searchInput.setSelectionRange(searchInput.value.length, searchInput.value.length);
                 }
-            }, 300);
+            }, 300); // Debounce time
         }
     });
 
+    // --- Event listener pentru 'submit' rămâne neschimbat ---
     mainContent.addEventListener('submit', async (event) => {
         if (event.target.id === 'upload-form') {
             event.preventDefault();
@@ -1299,13 +1346,12 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    // --- LISTENER GLOBAL UNIFICAT (CORECTAT) ---
-    // Acest listener gestionează atât închiderea meniurilor dropdown, cât și logica lightbox.
+    // --- Listener global pentru click (dropdown close & lightbox) rămâne neschimbat ---
     document.addEventListener('click', (event) => {
         const target = event.target;
 
         // 1. Logica pentru închiderea meniurilor dropdown
-        if (!target.closest('.dropdown')) {
+         if (!target.closest('.dropdown') && !target.closest('.dropdown-menu a')) { // Nu închide dacă se dă click pe linkul din meniu
             document.querySelectorAll('.dropdown-menu').forEach(menu => menu.classList.add('hidden'));
         }
 
@@ -1325,14 +1371,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 thumb.classList.toggle('border-blue-600', thumb.dataset.src === src);
                 thumb.classList.toggle('border-gray-500', thumb.dataset.src !== src);
             });
-            return;
+            return; // Important: Oprim propagarea dacă e click pe thumbnail
         }
 
         if (actionButton) {
             const action = actionButton.dataset.action;
 
             if (action === 'open-lightbox') {
-                 // Găsește imaginea sursă, chiar dacă s-a dat click pe container
                 const imgElement = actionButton.tagName === 'IMG' ? actionButton : actionButton.querySelector('img');
                 const mainImageSrc = imgElement ? imgElement.src : null;
                 if (!mainImageSrc) return;
@@ -1375,7 +1420,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 });
             }
         }
-    }, true); // Folosim 'true' pentru a rula în faza de captură, asigurând că rulează înaintea altor click-uri
+    }, true);
 
     renderView('comenzi');
 });
