@@ -259,7 +259,7 @@ document.addEventListener('DOMContentLoaded', () => {
                             <div class="absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-xl hidden dropdown-menu z-20 border border-gray-200">
                                 <a href="#" data-action="ready-to-list-command" data-command-id="${cmd.id}" class="flex items-center space-x-2 block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">
                                     <span class="material-icons text-base text-green-600">task_alt</span>
-                                    <span>Gata pentru Listat</span>
+                                    <span>Marchează Toate Gata</span>
                                 </a>
                                 </div>
                         </div>
@@ -274,20 +274,38 @@ document.addEventListener('DOMContentLoaded', () => {
             const paleti = {};
             command.products.forEach(p => {
                 const sku = p.manifestsku || 'No ManifestSKU';
-                if (!paleti[sku]) paleti[sku] = [];
-                paleti[sku].push(p);
+                if (!paleti[sku]) paleti[sku] = { products: [], allReady: true }; // Adaugă starea 'allReady'
+                paleti[sku].products.push(p);
+                // Dacă un singur produs nu e gata, tot paletul nu e gata
+                if (!p.listingReady) {
+                    paleti[sku].allReady = false;
+                }
             });
-            const paletiHTML = Object.entries(paleti).map(([sku, products]) => {
+            
+            // --- NOU: Sortare paleți ---
+            const sortedPaletiEntries = Object.entries(paleti).sort(([, palletA], [, palletB]) => {
+                // Sortează: false (ne-gata) vine înainte, true (gata) vine la urmă
+                return (palletA.allReady === palletB.allReady) ? 0 : palletA.allReady ? 1 : -1;
+            });
+
+            const paletiHTML = sortedPaletiEntries.map(([sku, palletData]) => {
+                const { products, allReady } = palletData;
                 const firstProduct = products[0];
                 const firstProductDetails = firstProduct ? details[firstProduct.asin] : null;
                 const firstImage = firstProductDetails?.images?.[0] || '';
+                
+                const readyClass = allReady ? 'bg-green-50' : 'bg-white';
+                const readyIcon = allReady ? '<span class="material-icons text-green-500 absolute top-2 right-2" title="Palet Gata">task_alt</span>' : '';
+
                 return `
-                <div class="bg-white p-4 rounded-lg shadow-sm cursor-pointer hover:shadow-md transition-shadow w-40 flex flex-col items-center" data-manifest-sku="${sku}">
+                <div class="relative ${readyClass} p-4 rounded-lg shadow-sm cursor-pointer hover:shadow-md transition-shadow w-40 flex flex-col items-center" data-manifest-sku="${sku}">
+                    ${readyIcon}
                     <img src="${firstImage}" alt="Imagine palet" class="w-32 h-32 object-contain rounded-md bg-gray-200 mb-4">
                     <h3 class="font-bold text-gray-800 text-center">${sku}</h3>
                     <p class="text-sm text-gray-500">${products.length} produse</p>
                 </div>`;
             }).join('');
+            // --- SFÂRȘIT MODIFICARE ---
             
             const noResultsHTML = paletiHTML.length === 0 ? `<p class="col-span-full text-gray-500">Nu s-au găsit produse care să corespundă căutării.</p>` : paletiHTML;
 
@@ -304,14 +322,36 @@ document.addEventListener('DOMContentLoaded', () => {
         },
 
         produse: (command, details, manifestSKU) => {
-             const productsToShow = command.products.filter(p => {
+             let productsToShow = command.products.filter(p => { // 'let' în loc de 'const'
                  const sku = p.manifestsku || 'No ManifestSKU';
                  return sku === manifestSKU;
              });
+             
+             // --- NOU: Sortare și stilizare ---
+             productsToShow.sort((a, b) => {
+                 // Sortează: false (ne-gata) vine înainte, true (gata) vine la urmă
+                 return (a.listingReady === b.listingReady) ? 0 : a.listingReady ? 1 : -1;
+             });
+
              const productsHTML = productsToShow.map(p => {
                 const d = details[p.asin];
-                return `<div class="flex items-center gap-4 bg-white p-3 rounded-md shadow-sm cursor-pointer hover:bg-gray-50" data-product-id="${p.id}"><img src="${d?.images?.[0] || ''}" class="w-16 h-16 object-cover rounded-md bg-gray-200"><div class="flex-1"><p class="font-semibold line-clamp-2">${d?.title || 'N/A'}</p><p class="text-sm text-gray-500">${p.asin}</p></div><div class="text-right"><p class="font-bold text-lg">${p.found}/${p.expected}</p></div><span class="material-icons text-gray-400">chevron_right</span></div>`;
+                const readyClass = p.listingReady ? 'bg-green-50' : 'bg-white';
+                const readyIcon = p.listingReady ? '<span class="material-icons text-green-500" title="Gata de listat">task_alt</span>' : '';
+                
+                return `<div class="flex items-center gap-4 ${readyClass} p-3 rounded-md shadow-sm cursor-pointer hover:bg-gray-50" data-product-id="${p.id}">
+                            <img src="${d?.images?.[0] || ''}" class="w-16 h-16 object-cover rounded-md bg-gray-200">
+                            <div class="flex-1">
+                                <p class="font-semibold line-clamp-2">${d?.title || 'N/A'}</p>
+                                <p class="text-sm text-gray-500">${p.asin}</p>
+                            </div>
+                            <div class="text-right">
+                                <p class="font-bold text-lg">${p.found}/${p.expected}</p>
+                            </div>
+                            ${readyIcon}
+                            <span class="material-icons text-gray-400">chevron_right</span>
+                        </div>`;
             }).join('');
+            // --- SFÂRȘIT MODIFICARE ---
             
             const noResultsHTML = productsToShow.length === 0 ? `<p class="col-span-full text-gray-500">Nu s-au găsit produse care să corespundă căutării.</p>` : productsHTML;
 
@@ -420,7 +460,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     
                     <button data-action="ready-to-list-single" data-asin="${product.asin}" class="px-4 py-2 bg-green-600 text-white rounded-lg font-semibold hover:bg-green-700 text-sm flex items-center space-x-2">
                         <span class="material-icons text-base">task_alt</span>
-                        <span>Gata pentru Listat</span>
+                        <span>Marchează Gata</span>
                     </button>
 
                     <button data-action="save-product" class="px-6 py-2 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700">Salvează Modificările</button>
@@ -490,6 +530,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     };
     
+    // --- MODIFICARE: Funcția saveCurrentTabData a fost corectată ---
     function saveCurrentTabData() {
         const titleEl = document.getElementById('product-title');
         if (!titleEl) return;
@@ -505,31 +546,36 @@ document.addEventListener('DOMContentLoaded', () => {
             if(previewEl) description = previewEl.innerHTML;
         }
 
-        const thumbsContainer = document.getElementById('thumbnails-container');
-        let currentImages = [];
-        if (thumbsContainer) {
-            thumbsContainer.querySelectorAll('[data-image-src]').forEach(el => {
-                currentImages.push(el.dataset.imageSrc);
-            });
-        } else {
-            const arr = getCurrentImagesArray();
-            currentImages = arr ? [...new Set(arr)] : [];
-        }
-        
         const key = state.activeVersionKey;
+
+        // 1. Salvează titlul și descrierea
         if (key === 'origin') {
             state.editedProductData.title = title;
             state.editedProductData.description = description;
-            state.editedProductData.images = currentImages;
         } else {
             if (!state.editedProductData.other_versions) state.editedProductData.other_versions = {};
             if (!state.editedProductData.other_versions[key]) state.editedProductData.other_versions[key] = {};
             
             state.editedProductData.other_versions[key].title = title;
             state.editedProductData.other_versions[key].description = description;
-            state.editedProductData.other_versions[key].images = currentImages;
         }
+
+        // 2. Salvează imaginile DOAR dacă containerul de thumbnails există
+        // (Aceasta este corecția pentru bug-ul de UI)
+        const thumbsContainer = document.getElementById('thumbnails-container');
+        if (thumbsContainer) {
+            let currentImages = [];
+            thumbsContainer.querySelectorAll('[data-image-src]').forEach(el => {
+                currentImages.push(el.dataset.imageSrc);
+            });
+            
+            // Folosim funcția existentă care știe să salveze la 'origin' sau 'other_versions'
+            setCurrentImagesArray(currentImages); 
+        }
+        // Dacă thumbsContainer nu există (suntem în vizualizarea "Nu ai stabilit poze"),
+        // NU salvăm nimic legat de imagini, pentru a nu polua starea cu un array gol.
     }
+    // --- SFÂRȘIT MODIFICARE ---
 
     function loadTabData(versionKey) {
         saveCurrentTabData();
@@ -568,7 +614,9 @@ document.addEventListener('DOMContentLoaded', () => {
         const galleryContainer = document.getElementById('image-gallery-container');
         if (galleryContainer) {
             galleryContainer.innerHTML = renderImageGallery(imagesToLoad);
-            if (imagesToLoad) {
+            // Inițializăm sortable doar dacă galeria randată conține thumbsContainer
+            // (adică nu este în starea "Nu ai stabilit poze")
+            if (imagesToLoad !== undefined && imagesToLoad !== null) {
                 initializeSortable();
             }
         }
@@ -582,7 +630,7 @@ document.addEventListener('DOMContentLoaded', () => {
             refreshBtn.classList.toggle('hidden', !isRomanianTab);
         }
     }
-
+    
     /**
      * --- NOU: Funcție helper pentru trimiterea ASIN-urilor "Gata de Listat" ---
      * @param {string[]} asins - O listă de string-uri ASIN
@@ -613,7 +661,11 @@ document.addEventListener('DOMContentLoaded', () => {
             }
 
             const result = await response.json();
-            alert('Produsele au fost marcate ca "Gata pentru Listat" cu succes!');
+            
+            // Actualizăm starea locală pentru a reflecta schimbarea
+            await fetchDataAndSyncState();
+            
+            alert('Produsele au fost marcate cu succes!');
             return true;
 
         } catch (error) {
@@ -926,7 +978,14 @@ document.addEventListener('DOMContentLoaded', () => {
             if (action === 'ready-to-list-single') {
                 const asin = actionButton.dataset.asin;
                 if (confirm(`Sigur doriți să marcați acest produs (${asin}) ca "Gata pentru Listat"?`)) {
-                    await sendReadyToList([asin], actionButton);
+                    const success = await sendReadyToList([asin], actionButton);
+                    if (success) {
+                        // Re-randează view-ul curent pentru a reflecta starea (deși sendReadyToList face deja fetch)
+                        await renderView('produs-detaliu', { 
+                            commandId: state.currentCommandId, 
+                            productId: state.currentProductId 
+                        });
+                    }
                 }
             }
 
@@ -944,7 +1003,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 const asins = [...new Set(command.products.map(p => p.asin))]; // Trimite doar ASIN-uri unice
                 
                 if (confirm(`Sigur doriți să marcați toate cele ${asins.length} produse unice din comanda ${command.name} ca "Gata pentru Listat"?`)) {
-                    await sendReadyToList(asins, actionButton);
+                    const success = await sendReadyToList(asins, actionButton);
+                    if (success) {
+                        // Re-randează view-ul de comenzi pentru a reflecta starea
+                        await renderView('comenzi');
+                    }
                 }
                 // Ascunde meniul după click
                 const menu = actionButton.closest('.dropdown-menu');
