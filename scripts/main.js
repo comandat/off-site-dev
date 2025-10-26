@@ -653,11 +653,10 @@ document.addEventListener('DOMContentLoaded', () => {
             refreshBtn.classList.toggle('hidden', !isRomanianTab);
         }
     }
-
-    /**
+/**
      * --- MODIFICAT: Funcția helper acceptă acum un obiect 'payload' ---
      * @param {object} payload - Obiectul de trimis ca JSON (ex: {asin, orderId, pallet, setReadyStatus} sau {orderId, setReadyStatus})
-     * @param {HTMLElement} button - Butonul sau elementul (ex. span din link) care a inițiat acțiunea
+     * @param {HTMLElement} buttonElement - Butonul sau elementul (ex. span din link) care a inițiat acțiunea
      */
     async function sendReadyToList(payload, buttonElement) {
         if (!payload) {
@@ -665,7 +664,7 @@ document.addEventListener('DOMContentLoaded', () => {
             return false;
         }
 
-        let originalHTML = '';
+        let originalHTML = ''; // Schimbat din originalText în originalHTML
         let targetElement = buttonElement; // Elementul pe care aplicăm spinnerul
 
         // Dacă elementul este un link <a>, aplicăm spinner pe ultimul <span> (textul)
@@ -674,7 +673,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         if (targetElement) {
-            originalHTML = targetElement.innerHTML;
+            originalHTML = targetElement.innerHTML; // Păstrăm tot HTML-ul (inclusiv iconița)
             // Dezactivăm butonul/linkul părinte dacă există
             if (buttonElement) buttonElement.style.pointerEvents = 'none';
             targetElement.innerHTML = '<div class="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin mx-auto"></div>';
@@ -695,6 +694,12 @@ document.addEventListener('DOMContentLoaded', () => {
             }
 
             const result = await response.json();
+
+            // --- NOU: Șterge query-ul de căutare înainte de refresh ---
+            state.currentSearchQuery = '';
+            const searchInput = document.getElementById('product-search-input'); // Găsește input-ul dacă există
+            if (searchInput) searchInput.value = ''; // Golește și câmpul vizual
+            // --- SFÂRȘIT NOU ---
 
             // Actualizăm starea locală pentru a reflecta schimbarea
             await fetchDataAndSyncState();
