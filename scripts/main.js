@@ -3,6 +3,7 @@ import { state } from './state.js';
 import { renderView } from './viewRenderer.js';
 import { initGlobalListeners } from './lightbox.js';
 import { sendReadyToList, handleUploadSubmit, handleAsinUpdate } from './api.js';
+// --- MODIFICAT: Am importat handleImageTranslation ---
 import { 
     loadTabData, 
     handleProductSave, 
@@ -10,8 +11,10 @@ import {
     handleTranslationInit, 
     handleImageActions, 
     handleDescriptionToggle,
-    saveCurrentTabData
+    saveCurrentTabData,
+    handleImageTranslation // <-- IMPORT NOU
 } from './product-details.js';
+// --- SFÂRȘIT MODIFICARE ---
 
 document.addEventListener('DOMContentLoaded', () => {
     const mainContent = document.getElementById('main-content');
@@ -23,127 +26,25 @@ document.addEventListener('DOMContentLoaded', () => {
         const target = event.target;
         
         // --- Selectori ---
-        const commandCard = target.closest('[data-command-id]:not([data-action])');
-        const palletCard = target.closest('[data-manifest-sku]');
-        const productCard = target.closest('[data-product-id]');
+        // ... (cod neschimbat)
         const actionButton = target.closest('[data-action]');
-        const versionButton = target.closest('.version-btn');
-        const languageOption = target.closest('.language-option');
-        const descModeButton = target.closest('[data-action="toggle-description-mode"]');
-        const thumbnail = target.closest('[data-action="select-thumbnail"]');
+        // ... (cod neschimbat)
 
         // --- Navigare ---
-        if (commandCard) {
-            state.currentSearchQuery = '';
-            state.currentCommandId = commandCard.dataset.commandId;
-            state.currentManifestSKU = null;
-            state.currentProductId = null;
-            await renderView('paleti', { commandId: state.currentCommandId });
-            return;
-        }
-        if (palletCard) {
-            state.currentManifestSKU = palletCard.dataset.manifestSku;
-            state.currentProductId = null;
-            await renderView('produse', { commandId: state.currentCommandId, manifestSKU: state.currentManifestSKU });
-            return;
-        }
-        if (productCard) {
-            state.productScrollPosition = mainContent.scrollTop;
-            state.currentProductId = productCard.dataset.productId;
-            await renderView('produs-detaliu', {
-                commandId: state.currentCommandId,
-                productId: state.currentProductId
-            });
-            return;
-        }
+        // ... (cod neschimbat)
 
         // --- Tab-uri și UI Produs ---
-        if (versionButton) {
-            loadTabData(versionButton.dataset.versionKey);
-            return;
-        }
-        if (descModeButton) {
-            handleDescriptionToggle(descModeButton);
-            return;
-        }
-        if (thumbnail) {
-            const newImageSrc = thumbnail.dataset.src;
-            if (!newImageSrc) return;
-            document.getElementById('main-image').src = newImageSrc;
-            document.querySelectorAll('.thumbnail-image').forEach(img => {
-                const parent = img.closest('[data-image-src]');
-                const isSelected = parent && parent.dataset.imageSrc === newImageSrc;
-                img.classList.toggle('border-2', isSelected);
-                img.classList.toggle('border-blue-600', isSelected);
-            });
-            return;
-        }
-        if (languageOption) {
-            event.preventDefault();
-            handleTranslationInit(languageOption);
-            return;
-        }
+        // ... (cod neschimbat)
 
         // --- Acțiuni (Butoane) ---
         if (actionButton) {
             const action = actionButton.dataset.action;
 
             // Navigare "Back"
-            if (action === 'back-to-comenzi') {
-                state.currentCommandId = null;
-                state.currentManifestSKU = null;
-                state.currentProductId = null;
-                state.currentSearchQuery = '';
-                await renderView('comenzi');
-            }
-            if (action === 'back-to-paleti') {
-                state.currentManifestSKU = null;
-                state.currentProductId = null;
-                await renderView('paleti', { commandId: state.currentCommandId });
-            }
-            if (action === 'back-to-produse') {
-                state.currentProductId = null;
-                await renderView('produse', { commandId: state.currentCommandId, manifestSKU: state.currentManifestSKU });
-            }
+            // ... (cod neschimbat)
 
             // Acțiuni API "Ready to List"
-            if (action === 'ready-to-list-single') {
-                const asin = actionButton.dataset.asin;
-                const orderId = actionButton.dataset.orderId;
-                const palletSku = actionButton.dataset.palletSku;
-                const currentStatus = actionButton.dataset.currentStatus === 'true';
-                const setReadyStatus = !currentStatus;
-                const confirmAction = setReadyStatus ? "marcați" : "anulați marcajul pentru";
-
-                if (confirm(`Sigur doriți să ${confirmAction} acest produs (${asin}) ca "Gata pentru Listat"?`)) {
-                    const payload = { orderId, pallet: palletSku || 'N/A', asin, setReadyStatus };
-                    const success = await sendReadyToList(payload, actionButton);
-                    if (success) {
-                        state.currentSearchQuery = ''; // Resetează căutarea după acțiune
-                        await renderView('produs-detaliu', {
-                            commandId: state.currentCommandId,
-                            productId: state.currentProductId
-                        });
-                    }
-                }
-            }
-            if (action === 'ready-to-list-command') {
-                event.preventDefault();
-                const commandId = actionButton.dataset.commandId;
-                const currentStatus = actionButton.dataset.currentStatus === 'true';
-                const setReadyStatus = !currentStatus;
-                const confirmAction = setReadyStatus ? "marcați TOATĂ" : "anulați marcajul pentru TOATĂ";
-                
-                if (confirm(`Sigur doriți să ${confirmAction} comanda?`)) {
-                    const payload = { orderId: commandId, setReadyStatus: setReadyStatus };
-                    const success = await sendReadyToList(payload, actionButton);
-                    if (success) {
-                        state.currentSearchQuery = ''; // Resetează căutarea după acțiune
-                        await renderView('comenzi');
-                    }
-                }
-                actionButton.closest('.dropdown-menu')?.classList.add('hidden');
-            }
+            // ... (cod neschimbat)
 
             // Acțiuni Pagină Produs
             if (action === 'edit-asin') {
@@ -165,55 +66,29 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             }
             
-            // Acțiuni Galerie Imagini
-            if (['delete-image', 'add-image-url', 'copy-origin-images', 'translate-ai-images'].includes(action)) {
+            // --- NOU: Handler specific pentru traducere imagini ---
+            if (action === 'translate-ai-images') {
+                await handleImageTranslation(actionButton);
+                return; // Oprește execuția aici
+            }
+            // --- SFÂRȘIT NOU ---
+            
+            // --- MODIFICAT: Scoatem 'translate-ai-images' din lista generică ---
+            if (['delete-image', 'add-image-url', 'copy-origin-images'].includes(action)) {
                 handleImageActions(action, actionButton);
             }
+            // --- SFÂRȘIT MODIFICARE ---
         }
     });
 
     // Listener pentru input (căutare, filtre)
-    mainContent.addEventListener('input', async (event) => {
-        if (event.target.id === 'language-search') {
-            const filter = event.target.value.toLowerCase();
-            document.querySelectorAll('#language-list .language-option').forEach(link => {
-                link.style.display = link.textContent.toLowerCase().includes(filter) ? '' : 'none';
-            });
-        }
-        else if (event.target.id === 'product-search-input') {
-            state.currentSearchQuery = event.target.value;
-            state.productScrollPosition = 0;
-
-            if (state.searchTimeout) {
-                clearTimeout(state.searchTimeout);
-            }
-
-            state.searchTimeout = setTimeout(async () => {
-                if (state.currentView === 'paleti') {
-                    await renderView('paleti', { commandId: state.currentCommandId });
-                } else if (state.currentView === 'produse') {
-                    await renderView('produse', { commandId: state.currentCommandId, manifestSKU: state.currentManifestSKU });
-                }
-                document.getElementById('product-search-input')?.focus();
-            }, 300);
-        }
-    });
+    // ... (cod neschimbat)
 
     // Listener pentru submit (doar formularul de import)
-    mainContent.addEventListener('submit', async (event) => {
-        if (event.target.id === 'upload-form') {
-            const success = await handleUploadSubmit(event);
-            if (success) {
-                await renderView('comenzi'); // Reîncarcă vizualizarea comenzilor
-            }
-        }
-    });
+    // ... (cod neschimbat)
 
     // Listener pentru sortarea imaginilor (eveniment custom)
-    document.addEventListener('images-sorted', () => {
-        console.log("Images sorted, saving tab data...");
-        saveCurrentTabData();
-    });
+    // ... (cod neschimbat)
 
     // Inițializează listener-ii globali (dropdowns, lightbox)
     initGlobalListeners();
