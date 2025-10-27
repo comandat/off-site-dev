@@ -23,6 +23,15 @@ export const AppState = {
     setProductDetails: (asin, data) => {
         productCache[asin] = data;
     },
+
+    // --- NOU: Funcție pentru a curăța cache-ul unui produs ---
+    clearProductCache: (asin) => {
+        if (asin && productCache[asin]) {
+            delete productCache[asin];
+            console.log(`Cache invalidat pentru ASIN: ${asin}`);
+        }
+    }
+    // --- SFÂRȘIT NOU ---
 };
 
 function processServerData(data) {
@@ -36,7 +45,7 @@ function processServerData(data) {
             expected: p.orderedquantity || 0,
             found: (p.bncondition || 0) + (p.vgcondition || 0) + (p.gcondition || 0) + (p.broken || 0),
             manifestsku: p.manifestsku || null,
-            listingReady: p.listingready || false // <-- MODIFICARE: Am adăugat listingReady
+            listingReady: p.listingready || false
         }))
     }));
 }
@@ -75,46 +84,31 @@ export async function fetchProductDetailsInBulk(asins) {
     return results;
 }
 
-// --- MODIFICAT: Funcția saveProductDetails ---
 export async function saveProductDetails(asin, updatedData) {
 
-    // --- MODIFICARE: Funcția de "escapare" ---
     function makeQueryFriendly(str) {
-        // Înlocuiește fiecare apostrof cu un spațiu
-        // Verifică dacă str este null sau undefined înainte de a apela replace
         return str ? str.replace(/'/g, " ") : str;
     }
 
-    // Creăm o copie profundă pentru a nu modifica obiectul original din state/cache
     const processedData = JSON.parse(JSON.stringify(updatedData));
-
-    // --- ÎNCEPUTUL REZOLVĂRII PENTRU EROAREA 'non-object' (ADĂUGAT) ---
     
-    // 1. Verifică și corectează câmpul 'features' de la rădăcină (pentru 'origin')
-    // Dacă 'features' este null, undefined, sau orice altceva ce nu e un obiect,
-    // îl setăm ca un obiect gol '{}'.
     if (!processedData.features || typeof processedData.features !== 'object') {
         processedData.features = {};
     }
 
-    // 2. Verifică și corectează câmpul 'features' pentru fiecare traducere din 'other_versions'
     if (processedData.other_versions) {
         for (const langCode in processedData.other_versions) {
             const version = processedData.other_versions[langCode];
             
-            // Asigură-te că versiunea în sine este un obiect valid
             if (version && typeof version === 'object') {
-                // Dacă 'features' lipsește, este null sau nu este un obiect, îl setăm ca '{}'
                 if (!version.features || typeof version.features !== 'object') {
                     version.features = {};
                 }
             }
         }
     }
-    // --- SFÂRȘITUL REZOLVĂRII ---
 
 
-    // Procesează titlul și descrierea principală (dacă există)
     if (processedData.title) {
         processedData.title = makeQueryFriendly(processedData.title);
     }
@@ -122,11 +116,9 @@ export async function saveProductDetails(asin, updatedData) {
         processedData.description = makeQueryFriendly(processedData.description);
     }
 
-    // Procesează titlurile și descrierile din other_versions (dacă există)
     if (processedData.other_versions) {
         for (const langCode in processedData.other_versions) {
             const version = processedData.other_versions[langCode];
-            // Verificăm dacă 'version' există înainte de a accesa proprietățile
             if (version && version.title) {
                 version.title = makeQueryFriendly(version.title);
             }
@@ -135,12 +127,10 @@ export async function saveProductDetails(asin, updatedData) {
             }
         }
     }
-    // --- SFÂRȘIT MODIFICARE ---
 
-    // Trimitem datele procesate
     const payload = {
         asin,
-        updatedData: processedData // Folosim datele procesate și corectate
+        updatedData: processedData
     };
 
     try {
@@ -154,7 +144,6 @@ export async function saveProductDetails(asin, updatedData) {
             return false;
         }
 
-        // Salvăm în cache datele ORIGINALE, ne-modificate
         AppState.setProductDetails(asin, updatedData);
 
         return true;
@@ -163,4 +152,3 @@ export async function saveProductDetails(asin, updatedData) {
         return false;
     }
 }
-// --- SFÂRȘITUL FUNCȚIEI saveProductDetails ---
