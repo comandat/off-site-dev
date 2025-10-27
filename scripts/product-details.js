@@ -11,7 +11,7 @@ import { renderImageGallery, initializeSortable, templates } from './templates.j
 import { saveProductDetails } from './data.js';
 
 // --- IMAGE HELPERS ---
-
+// ... (cod neschimbat)
 export function getCurrentImagesArray() {
     const key = state.activeVersionKey;
     if (key === 'origin') {
@@ -41,9 +41,11 @@ export function setCurrentImagesArray(imagesArray) {
 
     state.editedProductData.other_versions[key].images = imagesArray;
 }
+// ... (sfârșit cod neschimbat)
+
 
 // --- TAB DATA MANAGEMENT ---
-
+// ... (cod neschimbat)
 export function saveCurrentTabData() {
     const titleEl = document.getElementById('product-title');
     if (!titleEl) return;
@@ -100,7 +102,8 @@ export function loadTabData(versionKey) {
         imagesToLoad = dataToLoad.images;
     }
 
-    document.getElementById('product-title').value = dataToLoad.title || '';
+    const titleEl = document.getElementById('product-title');
+    if (titleEl) titleEl.value = dataToLoad.title || '';
 
     const description = dataToLoad.description || '';
     const rawEl = document.getElementById('product-description-raw');
@@ -111,10 +114,16 @@ export function loadTabData(versionKey) {
     if (rawEl && previewEl) {
          rawEl.classList.remove('hidden');
          previewEl.classList.add('hidden');
-         document.querySelector('.desc-mode-btn[data-mode="raw"]').classList.add('bg-blue-600', 'text-white');
-         document.querySelector('.desc-mode-btn[data-mode="raw"]').classList.remove('hover:bg-gray-100');
-         document.querySelector('.desc-mode-btn[data-mode="preview"]').classList.remove('bg-blue-600', 'text-white');
-         document.querySelector('.desc-mode-btn[data-mode="preview"]').classList.add('hover:bg-gray-100');
+         const rawBtn = document.querySelector('.desc-mode-btn[data-mode="raw"]');
+         const previewBtn = document.querySelector('.desc-mode-btn[data-mode="preview"]');
+         if (rawBtn) {
+            rawBtn.classList.add('bg-blue-600', 'text-white');
+            rawBtn.classList.remove('hover:bg-gray-100');
+         }
+         if (previewBtn) {
+            previewBtn.classList.remove('bg-blue-600', 'text-white');
+            previewBtn.classList.add('hover:bg-gray-100');
+         }
          state.descriptionEditorMode = 'raw';
     }
 
@@ -125,9 +134,12 @@ export function loadTabData(versionKey) {
             initializeSortable();
         }
     }
-
-    document.querySelectorAll('.version-btn').forEach(btn => btn.classList.toggle('bg-blue-600', btn.dataset.versionKey === versionKey));
-    document.querySelectorAll('.version-btn').forEach(btn => btn.classList.toggle('text-white', btn.dataset.versionKey === versionKey));
+    
+    document.querySelectorAll('.version-btn').forEach(btn => {
+        const isCurrent = btn.dataset.versionKey === versionKey;
+        btn.classList.toggle('bg-blue-600', isCurrent);
+        btn.classList.toggle('text-white', isCurrent);
+    });
 
     const refreshBtn = document.getElementById('refresh-title-btn');
     if (refreshBtn) {
@@ -135,9 +147,11 @@ export function loadTabData(versionKey) {
         refreshBtn.classList.toggle('hidden', !isRomanianTab);
     }
 }
+// ... (sfârșit cod neschimbat)
+
 
 // --- API CALLS & HANDLERS ---
-
+// ... (cod neschimbat)
 export async function fetchAndRenderCompetition(asin) {
     const container = document.getElementById('competition-container');
     if (!container) return;
@@ -267,6 +281,8 @@ export async function handleTranslationInit(languageOption) {
         alert('Eroare de rețea la inițierea traducerii.'); 
     }
 }
+// ... (sfârșit cod neschimbat)
+
 
 /**
  * Inițiază traducerea AI a imaginilor
@@ -281,45 +297,25 @@ export async function handleImageTranslation(button) {
         const asin = document.getElementById('product-asin')?.value;
         const activeKey = state.activeVersionKey; // ex: "romanian"
         
-        // --- AICI ESTE CORECTURA ---
-        // 1. Luăm array-ul 'origin' care poate avea duplicate
         const originImagesWithDupes = state.editedProductData.images || [];
-        // 2. Creăm un array nou, deduplicat, folosind new Set()
         const originImages = [...new Set(originImagesWithDupes)];
-        // --- SFÂRȘIT CORECTURĂ ---
         
-        // Găsește codul scurt (ex: "ro")
         const langCode = (languageNameToCodeMap[activeKey.toLowerCase()] || activeKey).toLowerCase();
 
-        if (!asin) {
-            throw new Error("ASIN-ul produsului nu a fost găsit.");
-        }
-        if (!langCode || langCode === 'origin') {
-            throw new Error("Limba selectată este invalidă pentru traducere.");
-        }
-        if (originImages.length === 0) {
-            throw new Error("Nu există imagini 'origin' de tradus. Copiați-le mai întâi.");
-        }
+        if (!asin) throw new Error("ASIN-ul produsului nu a fost găsit.");
+        if (!langCode || langCode === 'origin') throw new Error("Limba selectată este invalidă pentru traducere.");
+        if (originImages.length === 0) throw new Error("Nu există imagini 'origin' de tradus. Copiați-le mai întâi.");
+        
         if (IMAGE_TRANSLATION_WEBHOOK_URL.includes('URL_WEBHOOK_TRADUCERE_IMAGINI')) {
              throw new Error("URL-ul pentru traducerea imaginilor nu a fost configurat în constants.js");
         }
 
-        // Construiește payload-ul
-        const payloadData = {
-            asin: asin,
-            lang: langCode
-        };
-
-        // Folosim array-ul deduplicat 'originImages'
+        const payloadData = { asin: asin, lang: langCode };
         originImages.forEach((url, index) => {
-            if (index < 5) { // Limitat la 5 imagini
-                payloadData[`image${index + 1}`] = url;
-            }
+            if (index < 5) payloadData[`image${index + 1}`] = url;
         });
         
-        // Payload-ul final este un array cu un obiect, conform cerinței
         const payload = [payloadData];
-        
         console.log("Trimitere payload pentru traducere imagini:", payload);
 
         const response = await fetch(IMAGE_TRANSLATION_WEBHOOK_URL, {
@@ -333,11 +329,21 @@ export async function handleImageTranslation(button) {
             throw new Error(`Eroare HTTP: ${response.status}. ${errorText}`);
         }
 
-        alert('Traducerea imaginilor a fost inițiată cu succes!');
+        // --- MODIFICARE: Verificăm răspunsul ---
+        const result = await response.json();
+
+        if (result.status === 'success') {
+            alert('Traducerea imaginilor a fost inițiată cu succes! Se reîncarcă datele...');
+            return true; // Returnăm succes
+        } else {
+            throw new Error('Webhook-ul a răspuns, dar nu cu status "success".');
+        }
+        // --- SFÂRȘIT MODIFICARE ---
 
     } catch (error) {
         console.error('Eroare la inițierea traducerii imaginilor:', error);
         alert(`A apărut o eroare: ${error.message}`);
+        return false; // Returnăm eșec
     } finally {
         button.disabled = false;
         button.innerHTML = originalText;
@@ -346,7 +352,7 @@ export async function handleImageTranslation(button) {
 
 
 // --- EVENT HANDLERS (PENTRU A FI APELATE DIN main.js) ---
-
+// ... (cod neschimbat)
 export function handleImageActions(action, actionButton) {
     let currentImages = getCurrentImagesArray();
     if (action === 'delete-image') {
@@ -363,15 +369,12 @@ export function handleImageActions(action, actionButton) {
         }
         const newImageUrl = prompt("Vă rugăm introduceți URL-ul noii imagini:");
         if (newImageUrl) {
-            // Aici se nasc duplicatele, dar le lăsăm deocamdată
-            // și le corectăm la trimitere (în handleImageTranslation)
             currentImages.push(newImageUrl);
         }
     }
     else if (action === 'copy-origin-images') {
         currentImages = [...(state.editedProductData.images || [])];
     }
-    // Cazul 'translate-ai-images' este gestionat separat în main.js
 
     setCurrentImagesArray(currentImages);
     const galleryContainer = document.getElementById('image-gallery-container');
@@ -407,3 +410,4 @@ export function handleDescriptionToggle(descModeButton) {
     descModeButton.classList.add('bg-blue-600', 'text-white');
     descModeButton.classList.remove('hover:bg-gray-100');
 }
+// ... (sfârșit cod neschimbat)
