@@ -3,7 +3,9 @@ import { state } from './state.js';
 import { renderView } from './viewRenderer.js';
 import { initGlobalListeners } from './lightbox.js';
 import { sendReadyToList, handleUploadSubmit, handleAsinUpdate } from './api.js';
-// --- MODIFICAT: Am importat handleImageTranslation ---
+// --- MODIFICARE: Am importat fetchDataAndSyncState ---
+import { fetchDataAndSyncState } from './data.js'; 
+// --- SFÂRȘIT MODIFICARE ---
 import { 
     loadTabData, 
     handleProductSave, 
@@ -12,9 +14,8 @@ import {
     handleImageActions, 
     handleDescriptionToggle,
     saveCurrentTabData,
-    handleImageTranslation // <-- IMPORT NOU
+    handleImageTranslation
 } from './product-details.js';
-// --- SFÂRȘIT MODIFICARE ---
 
 document.addEventListener('DOMContentLoaded', () => {
     const mainContent = document.getElementById('main-content');
@@ -72,7 +73,9 @@ document.addEventListener('DOMContentLoaded', () => {
         if (thumbnail) {
             const newImageSrc = thumbnail.dataset.src;
             if (!newImageSrc) return;
-            document.getElementById('main-image').src = newImageSrc;
+            const mainImg = document.getElementById('main-image');
+            if (mainImg) mainImg.src = newImageSrc;
+            
             document.querySelectorAll('.thumbnail-image').forEach(img => {
                 const parent = img.closest('[data-image-src]');
                 const isSelected = parent && parent.dataset.imageSrc === newImageSrc;
@@ -168,18 +171,29 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             }
             
-            // --- NOU: Handler specific pentru traducere imagini ---
+            // --- MODIFICARE: Logica de reîncărcare ---
             if (action === 'translate-ai-images') {
-                await handleImageTranslation(actionButton);
+                const currentTabKey = state.activeVersionKey; // Salvăm tab-ul curent
+                const success = await handleImageTranslation(actionButton);
+                
+                if (success) {
+                    // 1. Reîmprospătează datele din sessionStorage
+                    await fetchDataAndSyncState(); 
+                    // 2. Re-randează pagina de detalii cu noile date
+                    await renderView('produs-detaliu', {
+                        commandId: state.currentCommandId,
+                        productId: state.currentProductId
+                    });
+                    // 3. Re-selectează tab-ul pe care era utilizatorul
+                    loadTabData(currentTabKey);
+                }
                 return; // Oprește execuția aici
             }
-            // --- SFÂRȘIT NOU ---
+            // --- SFÂRȘIT MODIFICARE ---
             
-            // --- MODIFICAT: Scoatem 'translate-ai-images' din lista generică ---
             if (['delete-image', 'add-image-url', 'copy-origin-images'].includes(action)) {
                 handleImageActions(action, actionButton);
             }
-            // --- SFÂRȘIT MODIFICARE ---
         }
     });
 
@@ -205,7 +219,14 @@ document.addEventListener('DOMContentLoaded', () => {
                 } else if (state.currentView === 'produse') {
                     await renderView('produse', { commandId: state.currentCommandId, manifestSKU: state.currentManifestSKU });
                 }
-                document.getElementById('product-search-input')?.focus();
+                const searchInput = document.getElementById('product-search-input');
+                if (searchInput) {
+                    searchInput.focus();
+                    // Mută cursorul la final
+                    const val = searchInput.value;
+                    searchInput.value = '';
+                    searchInput.value = val;
+                }
             }, 300);
         }
     });
