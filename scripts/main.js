@@ -3,8 +3,8 @@ import { state } from './state.js';
 import { renderView } from './viewRenderer.js';
 import { initGlobalListeners } from './lightbox.js';
 import { sendReadyToList, handleUploadSubmit, handleAsinUpdate } from './api.js';
-// --- MODIFICARE: Am importat fetchDataAndSyncState ---
-import { fetchDataAndSyncState } from './data.js'; 
+// --- MODIFICARE: Am importat AppState și fetchDataAndSyncState ---
+import { AppState, fetchDataAndSyncState } from './data.js'; 
 // --- SFÂRȘIT MODIFICARE ---
 import { 
     loadTabData, 
@@ -125,7 +125,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     const payload = { orderId, pallet: palletSku || 'N/A', asin, setReadyStatus };
                     const success = await sendReadyToList(payload, actionButton);
                     if (success) {
-                        state.currentSearchQuery = ''; // Resetează căutarea după acțiune
+                        state.currentSearchQuery = '';
                         await renderView('produs-detaliu', {
                             commandId: state.currentCommandId,
                             productId: state.currentProductId
@@ -144,7 +144,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     const payload = { orderId: commandId, setReadyStatus: setReadyStatus };
                     const success = await sendReadyToList(payload, actionButton);
                     if (success) {
-                        state.currentSearchQuery = ''; // Resetează căutarea după acțiune
+                        state.currentSearchQuery = '';
                         await renderView('comenzi');
                     }
                 }
@@ -171,20 +171,33 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             }
             
-            // --- MODIFICARE: Logica de reîncărcare ---
+            // --- MODIFICARE: Logica de reîncărcare cu invalidarea cache-ului ---
             if (action === 'translate-ai-images') {
-                const currentTabKey = state.activeVersionKey; // Salvăm tab-ul curent
+                const currentTabKey = state.activeVersionKey; 
+                
+                // Luăm ASIN-ul de pe pagină
+                const asin = document.getElementById('product-asin')?.value;
+                if (!asin) {
+                    alert('Eroare: Nu s-a putut găsi ASIN-ul produsului.');
+                    return;
+                }
+
                 const success = await handleImageTranslation(actionButton);
                 
                 if (success) {
-                    // 1. Reîmprospătează datele din sessionStorage
+                    // 1. Invalidează cache-ul pentru acest produs
+                    AppState.clearProductCache(asin); 
+                    
+                    // 2. Reîmprospătează datele comenzilor (opțional, dar sigur)
                     await fetchDataAndSyncState(); 
-                    // 2. Re-randează pagina de detalii cu noile date
+                    
+                    // 3. Re-randează pagina de detalii. Acum va forța un fetch nou.
                     await renderView('produs-detaliu', {
                         commandId: state.currentCommandId,
                         productId: state.currentProductId
                     });
-                    // 3. Re-selectează tab-ul pe care era utilizatorul
+                    
+                    // 4. Re-selectează tab-ul pe care era utilizatorul
                     loadTabData(currentTabKey);
                 }
                 return; // Oprește execuția aici
