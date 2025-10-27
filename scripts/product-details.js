@@ -1,6 +1,5 @@
 // scripts/product-details.js
 import { state } from './state.js';
-// --- MODIFICAT: Am adăugat IMAGE_TRANSLATION_WEBHOOK_URL ---
 import { 
     languageNameToCodeMap, 
     COMPETITION_WEBHOOK_URL, 
@@ -8,7 +7,6 @@ import {
     TRANSLATION_WEBHOOK_URL, 
     IMAGE_TRANSLATION_WEBHOOK_URL 
 } from './constants.js';
-// --- SFÂRȘIT MODIFICARE ---
 import { renderImageGallery, initializeSortable, templates } from './templates.js';
 import { saveProductDetails } from './data.js';
 
@@ -140,7 +138,6 @@ export function loadTabData(versionKey) {
 
 // --- API CALLS & HANDLERS ---
 
-// --- AICI ERA EROAREA: Funcția lipsea ---
 export async function fetchAndRenderCompetition(asin) {
     const container = document.getElementById('competition-container');
     if (!container) return;
@@ -163,7 +160,6 @@ export async function fetchAndRenderCompetition(asin) {
         container.innerHTML = `<div class="p-8 text-center text-red-500">Nu s-au putut încărca produsele concurente.</div>`;
     }
 }
-// --- SFÂRȘIT CORECTURĂ ---
 
 export async function handleProductSave(actionButton) {
     actionButton.textContent = 'Se salvează...';
@@ -272,7 +268,6 @@ export async function handleTranslationInit(languageOption) {
     }
 }
 
-// --- NOU: Funcție pentru a gestiona traducerea imaginilor ---
 /**
  * Inițiază traducerea AI a imaginilor
  * @param {HTMLElement} button - Butonul care a fost apăsat
@@ -284,8 +279,14 @@ export async function handleImageTranslation(button) {
 
     try {
         const asin = document.getElementById('product-asin')?.value;
-        const originImages = state.editedProductData.images || []; // Luăm imaginile de pe 'origin'
         const activeKey = state.activeVersionKey; // ex: "romanian"
+        
+        // --- AICI ESTE CORECTURA ---
+        // 1. Luăm array-ul 'origin' care poate avea duplicate
+        const originImagesWithDupes = state.editedProductData.images || [];
+        // 2. Creăm un array nou, deduplicat, folosind new Set()
+        const originImages = [...new Set(originImagesWithDupes)];
+        // --- SFÂRȘIT CORECTURĂ ---
         
         // Găsește codul scurt (ex: "ro")
         const langCode = (languageNameToCodeMap[activeKey.toLowerCase()] || activeKey).toLowerCase();
@@ -309,6 +310,7 @@ export async function handleImageTranslation(button) {
             lang: langCode
         };
 
+        // Folosim array-ul deduplicat 'originImages'
         originImages.forEach((url, index) => {
             if (index < 5) { // Limitat la 5 imagini
                 payloadData[`image${index + 1}`] = url;
@@ -341,7 +343,6 @@ export async function handleImageTranslation(button) {
         button.innerHTML = originalText;
     }
 }
-// --- SFÂRȘIT NOU ---
 
 
 // --- EVENT HANDLERS (PENTRU A FI APELATE DIN main.js) ---
@@ -362,6 +363,8 @@ export function handleImageActions(action, actionButton) {
         }
         const newImageUrl = prompt("Vă rugăm introduceți URL-ul noii imagini:");
         if (newImageUrl) {
+            // Aici se nasc duplicatele, dar le lăsăm deocamdată
+            // și le corectăm la trimitere (în handleImageTranslation)
             currentImages.push(newImageUrl);
         }
     }
