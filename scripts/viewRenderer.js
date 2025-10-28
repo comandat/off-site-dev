@@ -102,7 +102,11 @@ export async function renderView(viewId, context = {}) {
                     if (!productDetails.images || !Array.isArray(productDetails.images)) {
                         productDetails.images = [];
                     }
-                    productDetails.images = [...new Set(productDetails.images)];
+                    
+                    // --- MODIFICARE ---
+                    // Am eliminat linia: productDetails.images = [...new Set(productDetails.images)];
+                    // Acum 'productDetails.images' va păstra duplicatele primite din baza de date.
+                    // --- SFÂRȘIT MODIFICARE ---
 
                     state.editedProductData = JSON.parse(JSON.stringify(productDetails));
                     state.activeVersionKey = 'origin';
