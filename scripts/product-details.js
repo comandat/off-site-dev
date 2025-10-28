@@ -17,7 +17,8 @@ export function getCurrentImagesArray() {
         if (!state.editedProductData.images) {
             state.editedProductData.images = [];
         }
-        return state.editedProductData.images;
+        // --- MODIFICARE: Returnează o copie, nu referința ---
+        return [...state.editedProductData.images];
     }
 
     if (!state.editedProductData.other_versions) state.editedProductData.other_versions = {};
@@ -25,7 +26,8 @@ export function getCurrentImagesArray() {
     if (state.editedProductData.other_versions[key].images === undefined) {
         return null;
     }
-    return state.editedProductData.other_versions[key].images;
+    // --- MODIFICARE: Returnează o copie, nu referința ---
+    return [...state.editedProductData.other_versions[key].images];
 }
 
 export function setCurrentImagesArray(imagesArray) {
@@ -79,7 +81,12 @@ export function saveCurrentTabData() {
         thumbsContainer.querySelectorAll('[data-image-src]').forEach(el => {
             currentImages.push(el.dataset.imageSrc);
         });
-        setCurrentImagesArray(currentImages);
+        
+        // --- CORECTURĂ ---
+        // De-duplicăm array-ul citit din DOM înainte de a-l salva înapoi în state
+        const uniqueCurrentImages = [...new Set(currentImages)];
+        setCurrentImagesArray(uniqueCurrentImages);
+        // --- SFÂRȘIT CORECTURĂ ---
     }
 }
 
