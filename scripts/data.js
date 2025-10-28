@@ -40,7 +40,8 @@ function processServerData(data) {
         id: commandId,
         name: `Comanda #${commandId.substring(0, 12)}`,
         products: (data[commandId] || []).map(p => ({
-            id: p.productsku,
+            id: p.productsku, // Păstrăm 'id' ca productsku (pentru 'edit-asin' etc.)
+            uniqueId: `${p.productsku}::${p.manifestsku || 'N/A'}`, // Noul ID unic pentru navigație
             asin: p.asin,
             expected: p.orderedquantity || 0,
             found: (p.bncondition || 0) + (p.vgcondition || 0) + (p.gcondition || 0) + (p.broken || 0),
