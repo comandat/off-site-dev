@@ -291,11 +291,9 @@ export async function handleImageTranslation(button) {
         const asin = document.getElementById('product-asin')?.value;
         const activeKey = state.activeVersionKey; // ex: "romanian"
         
-        // --- MODIFICARE ---
         // Chiar dacă afișăm duplicate, trimitem doar imaginile unice la API-ul de traducere
         const originImagesWithDupes = state.editedProductData.images || [];
         const originImages = [...new Set(originImagesWithDupes)];
-        // --- SFÂRȘIT MODIFICARE ---
         
         const langCode = (languageNameToCodeMap[activeKey.toLowerCase()] || activeKey).toLowerCase();
 
@@ -355,10 +353,12 @@ export function handleImageActions(action, actionButton) {
         if (!currentImages) currentImages = [];
         
         // --- MODIFICARE ---
-        // Ne asigurăm că ștergem doar prima apariție a duplicatului, dacă există
+        // Găsim indexul *primei* poze care are acest URL
         const indexToDelete = currentImages.indexOf(imageSrc);
+        
+        // Dacă a fost găsit (index > -1), îl ștergem folosind splice
         if (indexToDelete > -1) {
-            currentImages.splice(indexToDelete, 1);
+            currentImages.splice(indexToDelete, 1); // Șterge 1 element de la acel index
         }
         // --- SFÂRȘIT MODIFICARE ---
     }
@@ -370,12 +370,11 @@ export function handleImageActions(action, actionButton) {
         }
         const newImageUrl = prompt("Vă rugăm introduceți URL-ul noii imagini:");
         if (newImageUrl) {
-            // --- MODIFICARE (de data trecută) ---
+            // Verificăm dacă imaginea există deja, pentru a nu adăuga noi duplicate
             if (currentImages.includes(newImageUrl)) {
                 alert("Această imagine este deja în galerie.");
                 return;
             }
-            // --- SFÂRȘIT MODIFICARE ---
             currentImages.push(newImageUrl);
         }
     }
