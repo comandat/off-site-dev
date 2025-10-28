@@ -16,8 +16,8 @@ function openLightbox(imgElement) {
     copyBtn.dataset.src = mainImageSrc;
     
     // --- MODIFICARE ---
-    // Am eliminat [...new Set()] pentru a afișa duplicatele și în lightbox
-    const currentImages = getCurrentImagesArray() || [];
+    // Filtrăm valorile goale (null, undefined, "") înainte de a afișa thumbnails în lightbox
+    const currentImages = (getCurrentImagesArray() || []).filter(img => img);
     // --- SFÂRȘIT MODIFICARE ---
     
     let thumbsHTML = '';
