@@ -56,9 +56,22 @@ export async function fetchDataAndSyncState() {
     try {
         const response = await fetch(DATA_FETCH_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: JSON.stringify({ code: accessCode }), cache: 'no-store' });
         if (!response.ok) throw new Error(`Eroare de rețea: ${response.status}`);
+        
         const responseData = await response.json();
+        
+        // --- DEBUG START ---
+        console.log("Date brute primite de la webhook (înainte de procesare):", JSON.parse(JSON.stringify(responseData.data)));
+        // --- DEBUG END ---
+
         if (responseData.status !== 'success' || !responseData.data) throw new Error('Răspuns invalid de la server');
-        AppState.setCommands(processServerData(responseData.data));
+        
+        const processedData = processServerData(responseData.data);
+
+        // --- DEBUG START ---
+        console.log("Date procesate și salvate în AppState (după procesare):", processedData);
+        // --- DEBUG END ---
+        
+        AppState.setCommands(processedData);
         return true;
     } catch (error) { console.error('Sincronizarea datelor a eșuat:', error); return false; }
 }
