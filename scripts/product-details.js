@@ -11,7 +11,6 @@ import { renderImageGallery, initializeSortable, templates } from './templates.j
 import { saveProductDetails } from './data.js';
 
 // --- IMAGE HELPERS ---
-// ... (cod neschimbat)
 export function getCurrentImagesArray() {
     const key = state.activeVersionKey;
     if (key === 'origin') {
@@ -41,11 +40,9 @@ export function setCurrentImagesArray(imagesArray) {
 
     state.editedProductData.other_versions[key].images = imagesArray;
 }
-// ... (sfârșit cod neschimbat)
 
 
 // --- TAB DATA MANAGEMENT ---
-// ... (cod neschimbat)
 export function saveCurrentTabData() {
     const titleEl = document.getElementById('product-title');
     if (!titleEl) return;
@@ -147,11 +144,9 @@ export function loadTabData(versionKey) {
         refreshBtn.classList.toggle('hidden', !isRomanianTab);
     }
 }
-// ... (sfârșit cod neschimbat)
 
 
 // --- API CALLS & HANDLERS ---
-// ... (cod neschimbat)
 export async function fetchAndRenderCompetition(asin) {
     const container = document.getElementById('competition-container');
     if (!container) return;
@@ -281,7 +276,6 @@ export async function handleTranslationInit(languageOption) {
         alert('Eroare de rețea la inițierea traducerii.'); 
     }
 }
-// ... (sfârșit cod neschimbat)
 
 
 /**
@@ -297,8 +291,11 @@ export async function handleImageTranslation(button) {
         const asin = document.getElementById('product-asin')?.value;
         const activeKey = state.activeVersionKey; // ex: "romanian"
         
+        // --- MODIFICARE ---
+        // Chiar dacă afișăm duplicate, trimitem doar imaginile unice la API-ul de traducere
         const originImagesWithDupes = state.editedProductData.images || [];
         const originImages = [...new Set(originImagesWithDupes)];
+        // --- SFÂRȘIT MODIFICARE ---
         
         const langCode = (languageNameToCodeMap[activeKey.toLowerCase()] || activeKey).toLowerCase();
 
@@ -329,7 +326,6 @@ export async function handleImageTranslation(button) {
             throw new Error(`Eroare HTTP: ${response.status}. ${errorText}`);
         }
 
-        // --- MODIFICARE: Verificăm răspunsul ---
         const result = await response.json();
 
         if (result.status === 'success') {
@@ -338,7 +334,6 @@ export async function handleImageTranslation(button) {
         } else {
             throw new Error('Webhook-ul a răspuns, dar nu cu status "success".');
         }
-        // --- SFÂRȘIT MODIFICARE ---
 
     } catch (error) {
         console.error('Eroare la inițierea traducerii imaginilor:', error);
@@ -352,14 +347,20 @@ export async function handleImageTranslation(button) {
 
 
 // --- EVENT HANDLERS (PENTRU A FI APELATE DIN main.js) ---
-// ... (cod neschimbat)
 export function handleImageActions(action, actionButton) {
     let currentImages = getCurrentImagesArray();
     if (action === 'delete-image') {
         const imageSrc = actionButton.dataset.imageSrc;
         if (!imageSrc) return;
         if (!currentImages) currentImages = [];
-        currentImages = currentImages.filter(img => img !== imageSrc);
+        
+        // --- MODIFICARE ---
+        // Ne asigurăm că ștergem doar prima apariție a duplicatului, dacă există
+        const indexToDelete = currentImages.indexOf(imageSrc);
+        if (indexToDelete > -1) {
+            currentImages.splice(indexToDelete, 1);
+        }
+        // --- SFÂRȘIT MODIFICARE ---
     }
     else if (action === 'add-image-url') {
         if (!currentImages) currentImages = [];
@@ -369,6 +370,12 @@ export function handleImageActions(action, actionButton) {
         }
         const newImageUrl = prompt("Vă rugăm introduceți URL-ul noii imagini:");
         if (newImageUrl) {
+            // --- MODIFICARE (de data trecută) ---
+            if (currentImages.includes(newImageUrl)) {
+                alert("Această imagine este deja în galerie.");
+                return;
+            }
+            // --- SFÂRȘIT MODIFICARE ---
             currentImages.push(newImageUrl);
         }
     }
@@ -410,4 +417,3 @@ export function handleDescriptionToggle(descModeButton) {
     descModeButton.classList.add('bg-blue-600', 'text-white');
     descModeButton.classList.remove('hover:bg-gray-100');
 }
-// ... (sfârșit cod neschimbat)
