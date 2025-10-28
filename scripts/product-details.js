@@ -135,9 +135,12 @@ export function loadTabData(versionKey) {
     const galleryContainer = document.getElementById('image-gallery-container');
     if (galleryContainer) {
         galleryContainer.innerHTML = renderImageGallery(imagesToLoad);
-        if (imagesToLoad !== undefined && imagesToLoad !== null) {
-            initializeSortable();
-        }
+        
+        // --- MODIFICARE (Corecție Sortable.js) ---
+        // Apelăm necondiționat. Funcția 'initializeSortable' a fost făcută mai robustă
+        // și știe acum să gestioneze singură cazul în care nu există container.
+        initializeSortable();
+        // --- SFÂRȘIT MODIFICARE ---
     }
     
     document.querySelectorAll('.version-btn').forEach(btn => {
@@ -464,7 +467,9 @@ export function handleImageActions(action, actionButton) {
     const galleryContainer = document.getElementById('image-gallery-container');
     if (galleryContainer) {
         galleryContainer.innerHTML = renderImageGallery(currentImages);
+        // --- MODIFICARE (Corecție Sortable.js) ---
         initializeSortable();
+        // --- SFÂRȘIT MODIFICARE ---
     }
 }
 
