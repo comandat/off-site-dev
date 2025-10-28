@@ -173,27 +173,57 @@ export async function fetchAndRenderCompetition(asin) {
 export async function handleProductSave(actionButton) {
     actionButton.textContent = 'Se salvează...';
     actionButton.disabled = true;
+    
+    // 1. Salvează datele de pe tab-ul pe care ești acum
     saveCurrentTabData();
+    
+    // 2. Salvează datele globale (brand, preț)
     state.editedProductData.brand = document.getElementById('product-brand').value;
     const priceValue = document.getElementById('product-price').value;
     state.editedProductData.price = priceValue.trim() === '' ? null : priceValue;
     
+    
+    // --- MODIFICARE CHEIE ---
+    // 3. Creăm un "payload" (o copie) a datelor și CURĂȚĂM toate duplicatele înainte de trimitere
+    
     const payload = JSON.parse(JSON.stringify(state.editedProductData));
     
+    // 3a. Curățăm imaginile 'origin'
+    if (payload.images && Array.isArray(payload.images)) {
+        payload.images = [...new Set(payload.images)];
+    }
+    
+    // 3b. Curățăm imaginile din 'other_versions'
     if (payload.other_versions) {
         const newOtherVersions = {};
         for (const [langName, langData] of Object.entries(payload.other_versions)) {
+            
+            // Curățăm array-ul de imagini DACA există
+            if (langData.images && Array.isArray(langData.images)) {
+                langData.images = [...new Set(langData.images)];
+            }
+            
+            // Re-aplicăm logica de conversie a numelui în cod de limbă
             const langCode = (languageNameToCodeMap[langName.toLowerCase()] || langName).toLowerCase();
             newOtherVersions[langCode] = langData;
         }
         payload.other_versions = newOtherVersions;
     }
+    // --- SFÂRȘIT MODIFICARE CHEIE ---
+    
     
     const asin = document.getElementById('product-asin').value;
+    
+    // 4. Trimitem la server payload-ul CURĂȚAT
     const success = await saveProductDetails(asin, payload);
     
     if (success) {
         alert('Salvat cu succes!');
+
+        // 5. Actualizăm și starea locală cu datele curate,
+        //    pentru ca la următoarea schimbare de tab să nu mai vedem duplicatele
+        state.editedProductData = JSON.parse(JSON.stringify(payload));
+
         return true;
     } else {
         alert('Eroare la salvare!');
@@ -352,7 +382,7 @@ export function handleImageActions(action, actionButton) {
         if (!imageSrc) return;
         if (!currentImages) currentImages = [];
         
-        // --- MODIFICARE ---
+        // --- MODIFICARE (din răspunsul anterior) ---
         // Găsim indexul *primei* poze care are acest URL
         const indexToDelete = currentImages.indexOf(imageSrc);
         
