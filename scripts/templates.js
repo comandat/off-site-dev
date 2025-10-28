@@ -6,10 +6,17 @@ import { languages, languageNameToCodeMap } from './constants.js';
 
 export function initializeSortable() {
     const thumbsContainer = document.getElementById('thumbnails-container');
+    
+    // --- MODIFICARE ---
+    // Întâi distruge instanța veche, dacă există.
     if (state.sortableInstance) {
         state.sortableInstance.destroy();
+        state.sortableInstance = null; // Important: resetează starea
     }
+    
+    // Doar dacă noul container există, creează o instanță nouă.
     if (thumbsContainer) {
+    // --- SFÂRȘIT MODIFICARE ---
         state.sortableInstance = new Sortable(thumbsContainer, {
             animation: 150,
             ghostClass: 'bg-blue-100',
