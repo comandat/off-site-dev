@@ -8,9 +8,7 @@ import {
     IMAGE_TRANSLATION_WEBHOOK_URL 
 } from './constants.js';
 import { renderImageGallery, initializeSortable, templates } from './templates.js';
-// --- MODIFICARE: Am importat saveProductDetails ---
 import { saveProductDetails } from './data.js';
-// --- SFÂRȘIT MODIFICARE ---
 
 // --- IMAGE HELPERS ---
 export function getCurrentImagesArray() {
@@ -19,16 +17,20 @@ export function getCurrentImagesArray() {
         if (!state.editedProductData.images) {
             state.editedProductData.images = [];
         }
-        // --- MODIFICARE (de data trecută): Returnează o copie, nu referința ---
         return [...state.editedProductData.images];
     }
 
     if (!state.editedProductData.other_versions) state.editedProductData.other_versions = {};
     if (!state.editedProductData.other_versions[key]) state.editedProductData.other_versions[key] = {};
-    if (state.editedProductData.other_versions[key].images === undefined) {
-        return null;
+
+    // --- MODIFICARE (Corecție 'not iterable') ---
+    // Verifică dacă images este 'null' sau 'undefined'. 
+    // (!value) prinde ambele cazuri.
+    if (!state.editedProductData.other_versions[key].images) {
+        return null; // Returnează null explicit
     }
-    // --- MODIFICARE (de data trecută): Returnează o copie, nu referința ---
+    // --- SFÂRȘIT MODIFICARE ---
+
     return [...state.editedProductData.other_versions[key].images];
 }
 
@@ -84,10 +86,8 @@ export function saveCurrentTabData() {
             currentImages.push(el.dataset.imageSrc);
         });
         
-        // --- CORECTURĂ (de data trecută): De-duplicăm array-ul citit din DOM ---
         const uniqueCurrentImages = [...new Set(currentImages)];
         setCurrentImagesArray(uniqueCurrentImages);
-        // --- SFÂRȘIT CORECTURĂ ---
     }
 }
 
@@ -135,12 +135,7 @@ export function loadTabData(versionKey) {
     const galleryContainer = document.getElementById('image-gallery-container');
     if (galleryContainer) {
         galleryContainer.innerHTML = renderImageGallery(imagesToLoad);
-        
-        // --- MODIFICARE (Corecție Sortable.js) ---
-        // Apelăm necondiționat. Funcția 'initializeSortable' a fost făcută mai robustă
-        // și știe acum să gestioneze singură cazul în care nu există container.
         initializeSortable();
-        // --- SFÂRȘIT MODIFICARE ---
     }
     
     document.querySelectorAll('.version-btn').forEach(btn => {
@@ -181,7 +176,6 @@ export async function fetchAndRenderCompetition(asin) {
     }
 }
 
-// --- MODIFICARE: Funcție nouă extrasă ---
 /**
  * Salvează datele curente ale produsului (fără UI)
  * @returns {Promise<boolean>} - True dacă salvarea a reușit, false altfel.
@@ -261,11 +255,9 @@ export async function saveProductCoreData() {
         return false;
     }
 }
-// --- SFÂRȘIT MODIFICARE ---
 
 
 export async function handleProductSave(actionButton) {
-    // --- MODIFICARE: Folosește funcția core ---
     const originalText = actionButton.textContent;
     actionButton.textContent = 'Se salvează...';
     actionButton.disabled = true;
@@ -274,7 +266,6 @@ export async function handleProductSave(actionButton) {
     
     if (success) {
         alert('Salvat cu succes!');
-        // state.editedProductData este deja actualizat în saveProductCoreData
         actionButton.textContent = originalText;
         actionButton.disabled = false;
         return true;
@@ -284,7 +275,6 @@ export async function handleProductSave(actionButton) {
         actionButton.disabled = false;
         return false;
     }
-    // --- SFÂRȘIT MODIFICARE ---
 }
 
 export async function handleTitleRefresh(actionButton) {
@@ -375,7 +365,6 @@ export async function handleImageTranslation(button) {
         const asin = document.getElementById('product-asin')?.value;
         const activeKey = state.activeVersionKey; // ex: "romanian"
         
-        // Trimitem doar imaginile unice și valide
         const originImagesWithValues = (state.editedProductData.images || []).filter(img => img);
         const originImages = [...new Set(originImagesWithValues)];
         
@@ -429,21 +418,30 @@ export async function handleImageTranslation(button) {
 
 
 // --- EVENT HANDLERS (PENTRU A FI APELATE DIN main.js) ---
+
+// --- MODIFICARE (Corecție 'not iterable') ---
 export function handleImageActions(action, actionButton) {
-    let currentImages = getCurrentImagesArray(); // Acum este o copie
+    let currentImages; // Inițializată goală
+
     if (action === 'delete-image') {
+        currentImages = getCurrentImagesArray(); // Ia imaginile tab-ului curent
+        // Dacă e un tab nou fără imagini, 'currentImages' va fi 'null'.
+        // Îl tratăm ca pe un array gol.
+        if (currentImages === null) currentImages = []; 
+
         const imageSrc = actionButton.dataset.imageSrc;
         if (!imageSrc) return;
         
-        // Filtrăm array-ul pentru a scoate *toate* instanțele acestei imagini (dacă bug-ul de duplicare ar reapărea)
-        // Sau, dacă vrem să ștergem doar prima, folosim codul de mai jos:
         const indexToDelete = currentImages.indexOf(imageSrc);
         if (indexToDelete > -1) {
-            currentImages.splice(indexToDelete, 1); // Șterge 1 element de la acel index
+            currentImages.splice(indexToDelete, 1);
         }
     }
     else if (action === 'add-image-url') {
-        // Filtrăm valorile goale pentru a număra corect
+        currentImages = getCurrentImagesArray(); // Ia imaginile tab-ului curent
+        // La fel, tratăm 'null' ca array gol
+        if (currentImages === null) currentImages = []; 
+
         const validImages = currentImages.filter(img => img);
         if (validImages.length >= 5) {
             alert("Puteți adăuga maxim 5 imagini.");
@@ -459,17 +457,21 @@ export function handleImageActions(action, actionButton) {
         }
     }
     else if (action === 'copy-origin-images') {
-        // Copiem imaginile din 'origin', filtrând valorile goale
+        // Aici NU apelăm getCurrentImagesArray().
+        // Construim array-ul direct din imaginile 'origin'.
         currentImages = [...(state.editedProductData.images || [])].filter(img => img);
     }
+    else {
+        // Acțiune necunoscută
+        return;
+    }
+    // --- SFÂRȘIT MODIFICARE ---
 
     setCurrentImagesArray(currentImages); // Setează noul array (care e o copie)
     const galleryContainer = document.getElementById('image-gallery-container');
     if (galleryContainer) {
         galleryContainer.innerHTML = renderImageGallery(currentImages);
-        // --- MODIFICARE (Corecție Sortable.js) ---
         initializeSortable();
-        // --- SFÂRȘIT MODIFICARE ---
     }
 }
 
