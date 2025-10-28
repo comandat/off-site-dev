@@ -163,9 +163,11 @@ export async function renderView(viewId, context = {}) {
         const galleryContainer = document.getElementById('image-gallery-container');
         if (galleryContainer) {
             galleryContainer.innerHTML = renderImageGallery(state.editedProductData.images);
-             if (state.editedProductData.images && state.editedProductData.images.length > 0) {
-                initializeSortable();
-             }
+            
+             // --- MODIFICARE (Corecție Sortable.js) ---
+             // Apelăm necondiționat. Funcția 'initializeSortable' se ocupă de logică.
+             initializeSortable();
+             // --- SFÂRȘIT MODIFICARE ---
         }
         fetchAndRenderCompetition(product.asin);
     }
