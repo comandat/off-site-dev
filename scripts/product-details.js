@@ -8,7 +8,9 @@ import {
     IMAGE_TRANSLATION_WEBHOOK_URL 
 } from './constants.js';
 import { renderImageGallery, initializeSortable, templates } from './templates.js';
+// --- MODIFICARE: Am importat saveProductDetails ---
 import { saveProductDetails } from './data.js';
+// --- SFÂRȘIT MODIFICARE ---
 
 // --- IMAGE HELPERS ---
 export function getCurrentImagesArray() {
@@ -176,92 +178,105 @@ export async function fetchAndRenderCompetition(asin) {
     }
 }
 
+// --- MODIFICARE: Funcție nouă extrasă ---
+/**
+ * Salvează datele curente ale produsului (fără UI)
+ * @returns {Promise<boolean>} - True dacă salvarea a reușit, false altfel.
+ */
+export async function saveProductCoreData() {
+    try {
+        // 1. Salvează datele de pe tab-ul pe care ești acum
+        saveCurrentTabData();
+        
+        // 2. Salvează datele globale (brand, preț)
+        state.editedProductData.brand = document.getElementById('product-brand').value;
+        const priceValue = document.getElementById('product-price').value;
+        state.editedProductData.price = priceValue.trim() === '' ? null : priceValue;
+        
+        
+        // --- MODIFICARE: Funcția helper pentru padare (mutată aici) ---
+        function padImagesArray(imagesArray) {
+            const fillValue = ""; // Folosim string gol
+            
+            if (!imagesArray || !Array.isArray(imagesArray)) {
+                return new Array(5).fill(fillValue);
+            }
+            
+            const validImages = imagesArray.filter(img => img);
+            const uniqueImages = [...new Set(validImages)];
+            
+            const paddedArray = new Array(5).fill(fillValue);
+            
+            for (let i = 0; i < uniqueImages.length && i < 5; i++) {
+                paddedArray[i] = uniqueImages[i];
+            }
+            
+            return paddedArray;
+        }
+        // --- SFÂRȘIT MODIFICARE ---
+        
+        
+        // 3. Creăm un "payload" (o copie) a datelor și PAD-ĂM array-urile de imagini
+        
+        const payload = JSON.parse(JSON.stringify(state.editedProductData));
+        
+        // 3a. Pad-ăm imaginile 'origin'
+        payload.images = padImagesArray(payload.images);
+        
+        // 3b. Pad-ăm imaginile din 'other_versions'
+        if (payload.other_versions) {
+            const newOtherVersions = {};
+            for (const [langName, langData] of Object.entries(payload.other_versions)) {
+                
+                langData.images = padImagesArray(langData.images);
+                
+                const langCode = (languageNameToCodeMap[langName.toLowerCase()] || langName).toLowerCase();
+                newOtherVersions[langCode] = langData;
+            }
+            payload.other_versions = newOtherVersions;
+        }
+        
+        const asin = document.getElementById('product-asin').value;
+        
+        // 4. Trimitem la server payload-ul CURĂȚAT și PAD-AT
+        const success = await saveProductDetails(asin, payload);
+        
+        if (success) {
+            // 5. Actualizăm și starea locală cu datele PADATE
+            state.editedProductData = JSON.parse(JSON.stringify(payload));
+            return true;
+        } else {
+            return false;
+        }
+    } catch (error) {
+        console.error("Eroare în saveProductCoreData:", error);
+        return false;
+    }
+}
+// --- SFÂRȘIT MODIFICARE ---
+
+
 export async function handleProductSave(actionButton) {
+    // --- MODIFICARE: Folosește funcția core ---
+    const originalText = actionButton.textContent;
     actionButton.textContent = 'Se salvează...';
     actionButton.disabled = true;
     
-    // 1. Salvează datele de pe tab-ul pe care ești acum
-    saveCurrentTabData();
-    
-    // 2. Salvează datele globale (brand, preț)
-    state.editedProductData.brand = document.getElementById('product-brand').value;
-    const priceValue = document.getElementById('product-price').value;
-    state.editedProductData.price = priceValue.trim() === '' ? null : priceValue;
-    
-    
-    // --- MODIFICARE: Adăugăm o funcție helper pentru padare cu STRING GOL ---
-    /**
-     * Paddează un array de imagini până la o lungime fixă (5) cu "".
-     * @param {(string|null)[]} imagesArray - Array-ul de URL-uri de imagini.
-     * @returns {(string)[]} Un array nou cu lungimea de 5.
-     */
-    function padImagesArray(imagesArray) {
-        const fillValue = ""; // Folosim string gol
-        
-        if (!imagesArray || !Array.isArray(imagesArray)) {
-            // Dacă e null/undefined, returnează 5 string-uri goale
-            return new Array(5).fill(fillValue);
-        }
-        
-        // Asigură-te că e de-duplicat și filtrează valorile goale (null, "", undefined)
-        const validImages = imagesArray.filter(img => img); // Filtrează orice e 'falsy'
-        const uniqueImages = [...new Set(validImages)];
-        
-        const paddedArray = new Array(5).fill(fillValue); // Creează ["", "", "", "", ""]
-        
-        // Copiază imaginile existente
-        for (let i = 0; i < uniqueImages.length && i < 5; i++) {
-            paddedArray[i] = uniqueImages[i];
-        }
-        
-        return paddedArray;
-    }
-    // --- SFÂRȘIT MODIFICARE ---
-    
-    
-    // 3. Creăm un "payload" (o copie) a datelor și PAD-ĂM array-urile de imagini
-    
-    const payload = JSON.parse(JSON.stringify(state.editedProductData));
-    
-    // --- MODIFICARE: Aplicăm funcția de padare ---
-    // 3a. Pad-ăm imaginile 'origin'
-    payload.images = padImagesArray(payload.images);
-    
-    // 3b. Pad-ăm imaginile din 'other_versions'
-    if (payload.other_versions) {
-        const newOtherVersions = {};
-        for (const [langName, langData] of Object.entries(payload.other_versions)) {
-            
-            // Pad-ăm array-ul de imagini
-            langData.images = padImagesArray(langData.images);
-            
-            // Re-aplicăm logica de conversie a numelui în cod de limbă
-            const langCode = (languageNameToCodeMap[langName.toLowerCase()] || langName).toLowerCase();
-            newOtherVersions[langCode] = langData;
-        }
-        payload.other_versions = newOtherVersions;
-    }
-    // --- SFÂRȘIT MODIFICARE ---
-    
-    
-    const asin = document.getElementById('product-asin').value;
-    
-    // 4. Trimitem la server payload-ul CURĂȚAT și PAD-AT
-    const success = await saveProductDetails(asin, payload);
+    const success = await saveProductCoreData(); // Apelează funcția core
     
     if (success) {
         alert('Salvat cu succes!');
-
-        // 5. Actualizăm și starea locală cu datele PADATE
-        state.editedProductData = JSON.parse(JSON.stringify(payload));
-
+        // state.editedProductData este deja actualizat în saveProductCoreData
+        actionButton.textContent = originalText;
+        actionButton.disabled = false;
         return true;
     } else {
         alert('Eroare la salvare!');
-        actionButton.textContent = 'Salvează Modificările';
+        actionButton.textContent = originalText;
         actionButton.disabled = false;
         return false;
     }
+    // --- SFÂRȘIT MODIFICARE ---
 }
 
 export async function handleTitleRefresh(actionButton) {
