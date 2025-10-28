@@ -15,7 +15,11 @@ function openLightbox(imgElement) {
     mainImageEl.src = mainImageSrc;
     copyBtn.dataset.src = mainImageSrc;
     
-    const currentImages = [...new Set(getCurrentImagesArray() || [])];
+    // --- MODIFICARE ---
+    // Am eliminat [...new Set()] pentru a afișa duplicatele și în lightbox
+    const currentImages = getCurrentImagesArray() || [];
+    // --- SFÂRȘIT MODIFICARE ---
+    
     let thumbsHTML = '';
     currentImages.forEach(img => {
         const isSelected = img === mainImageSrc;
