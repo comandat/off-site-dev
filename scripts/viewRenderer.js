@@ -95,6 +95,15 @@ export async function renderView(viewId, context = {}) {
                    product = cmd.products.find(p => p.id === context.productId);
                 }
 
+                // --- DEBUG START ---
+                if (product) {
+                    console.log(`%cFolosind ID-ul ${context.productId}, am găsit următorul obiect 'product' în AppState:`, "color: green; font-weight: bold;", JSON.parse(JSON.stringify(product)));
+                    console.log(`%cSe va deschide pagina de detalii pentru ASIN: ${product.asin}`, "color: green; font-weight: bold;");
+                } else {
+                    console.error(`EROARE: Nu am găsit niciun produs cu ID-ul ${context.productId} în comandă.`);
+                }
+                // --- DEBUG END ---
+
                 if (product) {
                     const detailsMap = await fetchProductDetailsInBulk([product.asin]);
                     const productDetails = detailsMap[product.asin];
@@ -103,10 +112,11 @@ export async function renderView(viewId, context = {}) {
                         productDetails.images = [];
                     }
                     
-                    // --- MODIFICARE ---
-                    // Am eliminat linia: productDetails.images = [...new Set(productDetails.images)];
-                    // Acum 'productDetails.images' va păstra duplicatele primite din baza de date.
-                    // --- SFÂRȘIT MODIFICARE ---
+                    // --- CORECTURĂ ---
+                    // Filtrăm valorile goale ("") primite din baza de date
+                    // pentru a fi consistenți cu logica de salvare și afișare.
+                    productDetails.images = productDetails.images.filter(img => img);
+                    // --- SFÂRȘIT CORECTURĂ ---
 
                     state.editedProductData = JSON.parse(JSON.stringify(productDetails));
                     state.activeVersionKey = 'origin';
