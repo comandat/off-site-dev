@@ -41,7 +41,18 @@ export function renderCompetitionStars(ratingString) {
 }
 
 export function renderImageGallery(images) {
-    if (images === undefined || images === null) {
+    
+    // --- MODIFICARE ---
+    // Verificăm dacă 'images' este null, undefined, SAU un array care conține doar valori "falsy" (ex: "")
+    const isEffectivelyEmpty = (
+        images === undefined || 
+        images === null || 
+        (Array.isArray(images) && images.every(img => !img))
+    );
+    
+    if (isEffectivelyEmpty) {
+    // --- SFÂRȘIT MODIFICARE ---
+    
         let buttonsHTML = `
             <button data-action="add-image-url" class="mt-4 w-full flex items-center justify-center space-x-2 p-2 text-sm text-blue-600 border border-blue-600 rounded-lg hover:bg-blue-50 transition-colors">
                 <span class="material-icons text-base">add_link</span>
@@ -71,7 +82,6 @@ export function renderImageGallery(images) {
         `;
     }
 
-    // --- MODIFICARE ---
     // Filtrăm valorile goale (null, undefined, "") din array înainte de a-l folosi
     const filteredImages = images.filter(img => img);
     
@@ -79,15 +89,12 @@ export function renderImageGallery(images) {
     const uniqueImages = [...new Set(filteredImages)];
     const imagesToRender = uniqueImages;
     const mainImageSrc = imagesToRender[0] || '';
-    // --- SFÂRȘIT MODIFICARE ---
     
     let thumbnailsHTML = '';
 
     for (let i = 0; i < 5; i++) {
-        // --- MODIFICARE ---
         // Folosim array-ul de-duplicat și filtrat
         const img = uniqueImages[i];
-        // --- SFÂRȘIT MODIFICARE ---
         if (img) {
             thumbnailsHTML += `
                 <div class="relative group aspect-square" data-image-src="${img}">
@@ -110,10 +117,8 @@ export function renderImageGallery(images) {
     }
 
     let addButtonHTML = '';
-    // --- MODIFICARE ---
     // Verificăm lungimea array-ului filtrat și de-duplicat
     if (uniqueImages.length < 5) {
-    // --- SFÂRȘIT MODIFICARE ---
         addButtonHTML = `
             <button data-action="add-image-url" class="mt-4 w-full flex items-center justify-center space-x-2 p-2 text-sm text-blue-600 border border-blue-600 rounded-lg hover:bg-blue-50 transition-colors">
                 <span class="material-icons text-base">add_link</span>
@@ -189,7 +194,7 @@ export const templates = {
             const { products, allReady } = palletData;
             const firstProduct = products[0];
             const firstProductDetails = firstProduct ? details[firstProduct.asin] : null;
-            const firstImage = firstProductDetails?.images?.[0] || '';
+            const firstImage = (firstProductDetails?.images || []).filter(img => img)[0] || ''; // Ia prima imagine validă
             const readyClass = allReady ? 'bg-green-50' : 'bg-white';
             const readyIcon = allReady ? '<span class="material-icons text-green-500 absolute top-2 right-2" title="Palet Gata">task_alt</span>' : '';
 
@@ -226,11 +231,12 @@ export const templates = {
 
          const productsHTML = productsToShow.map(p => {
             const d = details[p.asin];
+            const firstImage = (d?.images || []).filter(img => img)[0] || ''; // Ia prima imagine validă
             const readyClass = p.listingReady ? 'bg-green-50' : 'bg-white';
             const readyIcon = p.listingReady ? '<span class="material-icons text-green-500" title="Gata de listat">task_alt</span>' : '';
 
             return `<div class="flex items-center gap-4 ${readyClass} p-3 rounded-md shadow-sm cursor-pointer hover:bg-gray-50" data-product-id="${p.id}">
-                        <img src="${d?.images?.[0] || ''}" class="w-16 h-16 object-cover rounded-md bg-gray-200">
+                        <img src="${firstImage}" class="w-16 h-16 object-cover rounded-md bg-gray-200">
                         <div class="flex-1">
                             <p class="font-semibold line-clamp-2">${d?.title || 'N/A'}</p>
                             <p class="text-sm text-gray-500">${p.asin}</p>
