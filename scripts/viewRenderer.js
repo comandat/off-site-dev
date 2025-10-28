@@ -92,7 +92,7 @@ export async function renderView(viewId, context = {}) {
                 state.competitionDataCache = null;
                 const cmd = AppState.getCommands().find(c => c.id === context.commandId);
                 if (cmd) {
-                   product = cmd.products.find(p => p.id === context.productId);
+                   product = cmd.products.find(p => p.uniqueId === context.productId);
                 }
 
                 // --- DEBUG START ---
