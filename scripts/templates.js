@@ -72,15 +72,21 @@ export function renderImageGallery(images) {
     }
 
     // --- MODIFICARE ---
-    // Am eliminat 'uniqueImages' și folosim direct 'images' pentru a afișa duplicatele.
-    const imagesToRender = images;
+    // Filtrăm valorile goale (null, undefined, "") din array înainte de a-l folosi
+    const filteredImages = images.filter(img => img);
+    
+    // Folosim array-ul filtrat pentru a afișa
+    const uniqueImages = [...new Set(filteredImages)];
+    const imagesToRender = uniqueImages;
     const mainImageSrc = imagesToRender[0] || '';
     // --- SFÂRȘIT MODIFICARE ---
+    
     let thumbnailsHTML = '';
 
     for (let i = 0; i < 5; i++) {
         // --- MODIFICARE ---
-        const img = imagesToRender[i];
+        // Folosim array-ul de-duplicat și filtrat
+        const img = uniqueImages[i];
         // --- SFÂRȘIT MODIFICARE ---
         if (img) {
             thumbnailsHTML += `
@@ -104,9 +110,9 @@ export function renderImageGallery(images) {
     }
 
     let addButtonHTML = '';
-    // --- MODIFICARE (de data trecută, dar corectă) ---
-    // Verificăm lungimea array-ului original (images), nu a celui de-duplicat
-    if (images.length < 5) {
+    // --- MODIFICARE ---
+    // Verificăm lungimea array-ului filtrat și de-duplicat
+    if (uniqueImages.length < 5) {
     // --- SFÂRȘIT MODIFICARE ---
         addButtonHTML = `
             <button data-action="add-image-url" class="mt-4 w-full flex items-center justify-center space-x-2 p-2 text-sm text-blue-600 border border-blue-600 rounded-lg hover:bg-blue-50 transition-colors">
