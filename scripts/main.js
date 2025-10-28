@@ -14,6 +14,9 @@ import {
     handleImageActions, 
     handleDescriptionToggle,
     saveCurrentTabData,
+    // --- MODIFICARE: Am importat funcția core de salvare ---
+    saveProductCoreData,
+    // --- SFÂRȘIT MODIFICARE ---
     handleImageTranslation
 } from './product-details.js';
 
@@ -122,15 +125,34 @@ document.addEventListener('DOMContentLoaded', () => {
                 const confirmAction = setReadyStatus ? "marcați" : "anulați marcajul pentru";
 
                 if (confirm(`Sigur doriți să ${confirmAction} acest produs (${asin}) ca "Gata pentru Listat"?`)) {
-                    const payload = { orderId, pallet: palletSku || 'N/A', asin, setReadyStatus };
-                    const success = await sendReadyToList(payload, actionButton);
-                    if (success) {
-                        state.currentSearchQuery = '';
-                        await renderView('produs-detaliu', {
-                            commandId: state.currentCommandId,
-                            productId: state.currentProductId
-                        });
+                    
+                    // --- MODIFICARE: Adăugare logică de salvare automată ---
+                    let saveSuccess = true;
+                    if (setReadyStatus === true) { // Salvează automat DOAR la marcare
+                        console.log("Marcare Gata: Se salvează automat modificările...");
+                        saveSuccess = await saveProductCoreData(); // Așteaptă salvarea
+                        
+                        if (!saveSuccess) {
+                            alert('A apărut o eroare la salvarea modificărilor. Acțiunea "Gata de listat" a fost anulată.');
+                        } else {
+                             console.log("Salvare automată reușită. Se continuă cu marcarea...");
+                        }
                     }
+                    // --- SFÂRȘIT MODIFICARE ---
+
+                    // Continuă doar dacă salvarea a fost reușită (sau nu a fost necesară)
+                    if (saveSuccess) {
+                        const payload = { orderId, pallet: palletSku || 'N/A', asin, setReadyStatus };
+                        const success = await sendReadyToList(payload, actionButton);
+                        if (success) {
+                            state.currentSearchQuery = '';
+                            await renderView('produs-detaliu', {
+                                commandId: state.currentCommandId,
+                                productId: state.currentProductId
+                            });
+                        }
+                    }
+                    // --- SFÂRȘIT MODIFICARE ---
                 }
             }
             if (action === 'ready-to-list-command') {
