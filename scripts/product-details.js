@@ -194,7 +194,7 @@ export async function saveProductCoreData() {
         state.editedProductData.price = priceValue.trim() === '' ? null : priceValue;
         
         
-        // --- MODIFICARE: Funcția helper pentru padare (mutată aici) ---
+        // --- Funcția helper pentru padare ---
         function padImagesArray(imagesArray) {
             const fillValue = ""; // Folosim string gol
             
@@ -213,36 +213,41 @@ export async function saveProductCoreData() {
             
             return paddedArray;
         }
-        // --- SFÂRȘIT MODIFICARE ---
+        // --- SFÂRȘIT Funcție helper ---
         
         
-        // 3. Creăm un "payload" (o copie) a datelor și PAD-ĂM array-urile de imagini
-        
+        // 3. Creăm un "payload" PENTRU STAREA LOCALĂ (o copie)
         const payload = JSON.parse(JSON.stringify(state.editedProductData));
         
         // 3a. Pad-ăm imaginile 'origin'
         payload.images = padImagesArray(payload.images);
         
-        // 3b. Pad-ăm imaginile din 'other_versions'
+        // 3b. Pad-ăm imaginile din 'other_versions' (păstrând cheile "romanian", etc.)
         if (payload.other_versions) {
+            for (const langName in payload.other_versions) {
+                 payload.other_versions[langName].images = padImagesArray(payload.other_versions[langName].images);
+            }
+        }
+
+        // 4. PREGĂTIM PAYLOAD-UL FINAL PENTRU SERVER (cu chei convertite "ro", "de", etc.)
+        const payloadForServer = JSON.parse(JSON.stringify(payload));
+        if (payloadForServer.other_versions) {
             const newOtherVersions = {};
-            for (const [langName, langData] of Object.entries(payload.other_versions)) {
-                
-                langData.images = padImagesArray(langData.images);
-                
+            for (const [langName, langData] of Object.entries(payloadForServer.other_versions)) {
+                // langData.images este DEJA padat din pasul 3b
                 const langCode = (languageNameToCodeMap[langName.toLowerCase()] || langName).toLowerCase();
                 newOtherVersions[langCode] = langData;
             }
-            payload.other_versions = newOtherVersions;
+            payloadForServer.other_versions = newOtherVersions;
         }
         
         const asin = document.getElementById('product-asin').value;
         
-        // 4. Trimitem la server payload-ul CURĂȚAT și PAD-AT
-        const success = await saveProductDetails(asin, payload);
+        // 5. Trimitem la server payload-ul CURĂȚAT, PAD-AT și RE-CHEIAT
+        const success = await saveProductDetails(asin, payloadForServer);
         
         if (success) {
-            // 5. Actualizăm și starea locală cu datele PADATE
+            // 6. Actualizăm starea locală cu datele PADATE, dar FĂRĂ chei convertite
             state.editedProductData = JSON.parse(JSON.stringify(payload));
             return true;
         } else {
