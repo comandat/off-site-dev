@@ -242,7 +242,7 @@ export const templates = {
             const readyClass = p.listingReady ? 'bg-green-50' : 'bg-white';
             const readyIcon = p.listingReady ? '<span class="material-icons text-green-500" title="Gata de listat">task_alt</span>' : '';
 
-            return `<div class="flex items-center gap-4 ${readyClass} p-3 rounded-md shadow-sm cursor-pointer hover:bg-gray-50" data-product-id="${p.id}">
+                        return `<div class="flex items-center gap-4 ${readyClass} p-3 rounded-md shadow-sm cursor-pointer hover:bg-gray-50" data-product-id="${p.id}">
                         <img src="${firstImage}" class="w-16 h-16 object-cover rounded-md bg-gray-200">
                         <div class="flex-1">
                             <p class="font-semibold line-clamp-2">${d?.title || 'N/A'}</p>
