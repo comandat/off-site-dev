@@ -17,7 +17,7 @@ export function getCurrentImagesArray() {
         if (!state.editedProductData.images) {
             state.editedProductData.images = [];
         }
-        // --- MODIFICARE: Returnează o copie, nu referința ---
+        // --- MODIFICARE (de data trecută): Returnează o copie, nu referința ---
         return [...state.editedProductData.images];
     }
 
@@ -26,7 +26,7 @@ export function getCurrentImagesArray() {
     if (state.editedProductData.other_versions[key].images === undefined) {
         return null;
     }
-    // --- MODIFICARE: Returnează o copie, nu referința ---
+    // --- MODIFICARE (de data trecută): Returnează o copie, nu referința ---
     return [...state.editedProductData.other_versions[key].images];
 }
 
@@ -82,8 +82,7 @@ export function saveCurrentTabData() {
             currentImages.push(el.dataset.imageSrc);
         });
         
-        // --- CORECTURĂ ---
-        // De-duplicăm array-ul citit din DOM înainte de a-l salva înapoi în state
+        // --- CORECTURĂ (de data trecută): De-duplicăm array-ul citit din DOM ---
         const uniqueCurrentImages = [...new Set(currentImages)];
         setCurrentImagesArray(uniqueCurrentImages);
         // --- SFÂRȘIT CORECTURĂ ---
@@ -190,25 +189,51 @@ export async function handleProductSave(actionButton) {
     state.editedProductData.price = priceValue.trim() === '' ? null : priceValue;
     
     
-    // --- MODIFICARE CHEIE ---
-    // 3. Creăm un "payload" (o copie) a datelor și CURĂȚĂM toate duplicatele înainte de trimitere
+    // --- MODIFICARE: Adăugăm o funcție helper pentru padare cu STRING GOL ---
+    /**
+     * Paddează un array de imagini până la o lungime fixă (5) cu "".
+     * @param {(string|null)[]} imagesArray - Array-ul de URL-uri de imagini.
+     * @returns {(string)[]} Un array nou cu lungimea de 5.
+     */
+    function padImagesArray(imagesArray) {
+        const fillValue = ""; // Folosim string gol
+        
+        if (!imagesArray || !Array.isArray(imagesArray)) {
+            // Dacă e null/undefined, returnează 5 string-uri goale
+            return new Array(5).fill(fillValue);
+        }
+        
+        // Asigură-te că e de-duplicat și filtrează valorile goale (null, "", undefined)
+        const validImages = imagesArray.filter(img => img); // Filtrează orice e 'falsy'
+        const uniqueImages = [...new Set(validImages)];
+        
+        const paddedArray = new Array(5).fill(fillValue); // Creează ["", "", "", "", ""]
+        
+        // Copiază imaginile existente
+        for (let i = 0; i < uniqueImages.length && i < 5; i++) {
+            paddedArray[i] = uniqueImages[i];
+        }
+        
+        return paddedArray;
+    }
+    // --- SFÂRȘIT MODIFICARE ---
+    
+    
+    // 3. Creăm un "payload" (o copie) a datelor și PAD-ĂM array-urile de imagini
     
     const payload = JSON.parse(JSON.stringify(state.editedProductData));
     
-    // 3a. Curățăm imaginile 'origin'
-    if (payload.images && Array.isArray(payload.images)) {
-        payload.images = [...new Set(payload.images)];
-    }
+    // --- MODIFICARE: Aplicăm funcția de padare ---
+    // 3a. Pad-ăm imaginile 'origin'
+    payload.images = padImagesArray(payload.images);
     
-    // 3b. Curățăm imaginile din 'other_versions'
+    // 3b. Pad-ăm imaginile din 'other_versions'
     if (payload.other_versions) {
         const newOtherVersions = {};
         for (const [langName, langData] of Object.entries(payload.other_versions)) {
             
-            // Curățăm array-ul de imagini DACA există
-            if (langData.images && Array.isArray(langData.images)) {
-                langData.images = [...new Set(langData.images)];
-            }
+            // Pad-ăm array-ul de imagini
+            langData.images = padImagesArray(langData.images);
             
             // Re-aplicăm logica de conversie a numelui în cod de limbă
             const langCode = (languageNameToCodeMap[langName.toLowerCase()] || langName).toLowerCase();
@@ -216,19 +241,18 @@ export async function handleProductSave(actionButton) {
         }
         payload.other_versions = newOtherVersions;
     }
-    // --- SFÂRȘIT MODIFICARE CHEIE ---
+    // --- SFÂRȘIT MODIFICARE ---
     
     
     const asin = document.getElementById('product-asin').value;
     
-    // 4. Trimitem la server payload-ul CURĂȚAT
+    // 4. Trimitem la server payload-ul CURĂȚAT și PAD-AT
     const success = await saveProductDetails(asin, payload);
     
     if (success) {
         alert('Salvat cu succes!');
 
-        // 5. Actualizăm și starea locală cu datele curate,
-        //    pentru ca la următoarea schimbare de tab să nu mai vedem duplicatele
+        // 5. Actualizăm și starea locală cu datele PADATE
         state.editedProductData = JSON.parse(JSON.stringify(payload));
 
         return true;
@@ -328,9 +352,9 @@ export async function handleImageTranslation(button) {
         const asin = document.getElementById('product-asin')?.value;
         const activeKey = state.activeVersionKey; // ex: "romanian"
         
-        // Chiar dacă afișăm duplicate, trimitem doar imaginile unice la API-ul de traducere
-        const originImagesWithDupes = state.editedProductData.images || [];
-        const originImages = [...new Set(originImagesWithDupes)];
+        // Trimitem doar imaginile unice și valide
+        const originImagesWithValues = (state.editedProductData.images || []).filter(img => img);
+        const originImages = [...new Set(originImagesWithValues)];
         
         const langCode = (languageNameToCodeMap[activeKey.toLowerCase()] || activeKey).toLowerCase();
 
@@ -383,31 +407,27 @@ export async function handleImageTranslation(button) {
 
 // --- EVENT HANDLERS (PENTRU A FI APELATE DIN main.js) ---
 export function handleImageActions(action, actionButton) {
-    let currentImages = getCurrentImagesArray();
+    let currentImages = getCurrentImagesArray(); // Acum este o copie
     if (action === 'delete-image') {
         const imageSrc = actionButton.dataset.imageSrc;
         if (!imageSrc) return;
-        if (!currentImages) currentImages = [];
         
-        // --- MODIFICARE (din răspunsul anterior) ---
-        // Găsim indexul *primei* poze care are acest URL
+        // Filtrăm array-ul pentru a scoate *toate* instanțele acestei imagini (dacă bug-ul de duplicare ar reapărea)
+        // Sau, dacă vrem să ștergem doar prima, folosim codul de mai jos:
         const indexToDelete = currentImages.indexOf(imageSrc);
-        
-        // Dacă a fost găsit (index > -1), îl ștergem folosind splice
         if (indexToDelete > -1) {
             currentImages.splice(indexToDelete, 1); // Șterge 1 element de la acel index
         }
-        // --- SFÂRȘIT MODIFICARE ---
     }
     else if (action === 'add-image-url') {
-        if (!currentImages) currentImages = [];
-        if (currentImages.length >= 5) {
+        // Filtrăm valorile goale pentru a număra corect
+        const validImages = currentImages.filter(img => img);
+        if (validImages.length >= 5) {
             alert("Puteți adăuga maxim 5 imagini.");
             return;
         }
         const newImageUrl = prompt("Vă rugăm introduceți URL-ul noii imagini:");
         if (newImageUrl) {
-            // Verificăm dacă imaginea există deja, pentru a nu adăuga noi duplicate
             if (currentImages.includes(newImageUrl)) {
                 alert("Această imagine este deja în galerie.");
                 return;
@@ -416,10 +436,11 @@ export function handleImageActions(action, actionButton) {
         }
     }
     else if (action === 'copy-origin-images') {
-        currentImages = [...(state.editedProductData.images || [])];
+        // Copiem imaginile din 'origin', filtrând valorile goale
+        currentImages = [...(state.editedProductData.images || [])].filter(img => img);
     }
 
-    setCurrentImagesArray(currentImages);
+    setCurrentImagesArray(currentImages); // Setează noul array (care e o copie)
     const galleryContainer = document.getElementById('image-gallery-container');
     if (galleryContainer) {
         galleryContainer.innerHTML = renderImageGallery(currentImages);
