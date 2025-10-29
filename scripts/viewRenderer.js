@@ -1,3 +1,4 @@
+// scripts/viewRenderer.js
 import { AppState, fetchDataAndSyncState, fetchProductDetailsInBulk } from './data.js';
 import { state } from './state.js';
 import { fuzzySearch } from './utils.js';
@@ -16,6 +17,14 @@ export function setActiveView(viewId) {
 }
 
 export async function renderView(viewId, context = {}) {
+    
+    // --- MODIFICARE ---
+    // Stochează vederea anterioară înainte de a o suprascrie
+    if (viewId !== state.currentView) {
+        state.previousView = state.currentView;
+    }
+    // --- SFÂRȘIT MODIFICARE ---
+
     state.currentView = viewId;
     let html = '';
     let foundProduct = null; 
