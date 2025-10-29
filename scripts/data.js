@@ -6,7 +6,7 @@
 // Noul cache in-memorie pentru detalii produse
 const productCache = {};
 const DATA_FETCH_URL = 'https://automatizare.comandat.ro/webhook/5a447557-8d52-463e-8a26-5902ccee8177';
-const PRODUCT_DETAILS_URL = 'https://automatizare.comandat.ro/webhook/39e78a55-36c9-4948-aa2d-d9301c996562';
+const PRODUCT_DETAILS_URL = 'https://automatizare.comandat.ro/webhook/39e78a55-36c9-4948-aa2d-d9301c996562-test';
 const PRODUCT_UPDATE_URL = 'https://automatizare.comandat.ro/webhook/eecb8515-6092-47b0-af12-f10fb23407fa';
 
 // --- MANAGEMENT STARE APLICAȚIE ---
