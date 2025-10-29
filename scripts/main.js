@@ -22,9 +22,7 @@ import {
     downloadCSV 
 } from './export.js';
 
-// --- MODIFICARE AICI: Am adăugat 'async' ---
 document.addEventListener('DOMContentLoaded', async () => {
-// --- SFÂRȘIT MODIFICARE ---
     const mainContent = document.getElementById('main-content');
 
     document.body.addEventListener('click', async (event) => {
@@ -118,7 +116,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                     return;
                 }
                 
-                state.currentView = 'exportDate';
+                // state.currentView va fi setat de renderView
                 
                 const command = AppState.getCommands().find(c => c.id === commandId);
                 const product = command?.products.find(p => p.uniqueId === productId);
@@ -152,8 +150,13 @@ document.addEventListener('DOMContentLoaded', async () => {
             }
             if (action === 'back-to-produse') {
                 state.currentProductId = null;
-                const lastView = state.currentView === 'exportDate' ? 'exportDate' : 'produse';
-                if (lastView === 'exportDate') {
+                
+                // --- MODIFICARE AICI ---
+                // Verificăm pagina ANTERIOARĂ, nu cea curentă
+                const cameFromExport = state.previousView === 'exportDate';
+                
+                if (cameFromExport) {
+                // --- SFÂRȘIT MODIFICARE ---
                     await renderView('exportDate');
                     
                     const select = document.getElementById('export-command-select');
@@ -241,8 +244,11 @@ document.addEventListener('DOMContentLoaded', async () => {
             if (action === 'save-product') {
                 const success = await handleProductSave(actionButton);
                 if (success) {
-                    const lastView = state.currentView === 'exportDate' ? 'exportDate' : 'produse';
-                    if (lastView === 'exportDate') {
+                    // --- MODIFICARE AICI ---
+                    // Verificăm pagina ANTERIOARĂ
+                    const cameFromExport = state.previousView === 'exportDate';
+                    if (cameFromExport) {
+                    // --- SFÂRȘIT MODIFICARE ---
                         await renderView('exportDate');
                         
                         const select = document.getElementById('export-command-select');
@@ -389,6 +395,9 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         if (event.target.id === 'export-command-select') {
             const commandId = event.target.value;
+            // Păstrează ID-ul comenzii în state
+            state.currentCommandId = commandId || null; 
+            
             const actionsContainer = document.getElementById('export-actions-container');
             const placeholder = document.getElementById('export-placeholder');
             const previewContainer = document.getElementById('export-preview-container');
@@ -424,6 +433,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     const lastView = state.currentView || 'comenzi';
     
+    // Logica de pornire (pentru refresh-uri de pagină)
     if (lastView === 'exportDate' && state.currentCommandId) {
         await renderView('exportDate');
         
