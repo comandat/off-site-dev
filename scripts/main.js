@@ -22,7 +22,9 @@ import {
     downloadCSV 
 } from './export.js';
 
-document.addEventListener('DOMContentLoaded', () => {
+// --- MODIFICARE AICI: Am adăugat 'async' ---
+document.addEventListener('DOMContentLoaded', async () => {
+// --- SFÂRȘIT MODIFICARE ---
     const mainContent = document.getElementById('main-content');
 
     document.body.addEventListener('click', async (event) => {
