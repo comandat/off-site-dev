@@ -1,22 +1,15 @@
-// scripts/templates.js
 import { state } from './state.js';
 import { languages, languageNameToCodeMap } from './constants.js';
-
-// --- HELPERS PENTRU TEMPLATES ---
 
 export function initializeSortable() {
     const thumbsContainer = document.getElementById('thumbnails-container');
     
-    // --- MODIFICARE ---
-    // Întâi distruge instanța veche, dacă există.
     if (state.sortableInstance) {
         state.sortableInstance.destroy();
-        state.sortableInstance = null; // Important: resetează starea
+        state.sortableInstance = null; 
     }
     
-    // Doar dacă noul container există, creează o instanță nouă.
     if (thumbsContainer) {
-    // --- SFÂRȘIT MODIFICARE ---
         state.sortableInstance = new Sortable(thumbsContainer, {
             animation: 150,
             ghostClass: 'bg-blue-100',
@@ -130,20 +123,8 @@ export function renderImageGallery(images) {
     `;
 }
 
-
-// --- OBIECTUL PRINCIPAL DE TEMPLATES ---
-
 export const templates = {
 
-    // --- MODIFICARE: Funcție helper adăugată pentru a formata câmpurile ---
-    /**
-     * Creează un câmp de formular pentru pagina financiară.
-     * @param {string} id - ID-ul elementului input
-     * @param {string} label - Textul pentru etichetă
-     * @param {string} value - Valoarea câmpului
-     * @param {boolean} readonly - Dacă câmpul este non-editabil
-     * @param {string} type - Tipul input-ului (text, number, date)
-     */
     financiarInput: (id, label, value = '', readonly = false, type = 'text') => `
         <div class="col-span-1">
             <label for="${id}" class="block text-sm font-medium text-gray-500">${label}</label>
@@ -155,16 +136,11 @@ export const templates = {
         </div>
     `,
 
-    /**
-     * Template pentru detaliile financiare ale unei comenzi
-     * @param {object} commandData - Obiectul cu datele comenzii (sau null)
-     */
     financiarDetails: (commandData) => {
         if (!commandData) {
             return '<p class="text-gray-500 text-center col-span-full">Selectați o comandă pentru a vedea detaliile.</p>';
         }
         
-        // Simulare date - acestea vor veni de la un API
         const data = {
             orderdate: commandData.orderdate || 'N/A',
             totalordercostwithoutvat: commandData.totalordercostwithoutvat || 0,
@@ -174,7 +150,6 @@ export const templates = {
             exchangerate: commandData.exchangerate || 1,
         };
         
-        // Calcul TVA
         const totalCuTVA = (parseFloat(data.totalordercostwithoutvat) || 0) * 1.21;
 
         return `
@@ -199,10 +174,6 @@ export const templates = {
         `;
     },
 
-    /**
-     * Template pentru pagina Financiar
-     * @param {Array} commands - Lista tuturor comenzilor
-     */
     financiar: (commands) => {
         const optionsHTML = commands.map(cmd => 
             `<option value="${cmd.id}">${cmd.name}</option>`
@@ -233,10 +204,6 @@ export const templates = {
         `;
     },
 
-    /**
-     * Template pentru pagina Export Date (Placeholder)
-     */
-    // --- MODIFICARE: Template actualizat pentru Export Date ---
     exportDate: (commands) => {
         const optionsHTML = commands.map(cmd => 
             `<option value="${cmd.id}">${cmd.name}</option>`
@@ -282,8 +249,6 @@ export const templates = {
         </div>
         `;
     },
-    // --- SFÂRȘIT MODIFICARE ---
-
 
     comenzi: (commands) => {
         const commandsHTML = commands.length > 0
@@ -341,7 +306,7 @@ export const templates = {
             const { products, allReady } = palletData;
             const firstProduct = products[0];
             const firstProductDetails = firstProduct ? details[firstProduct.asin] : null;
-            const firstImage = (firstProductDetails?.images || []).filter(img => img)[0] || ''; // Ia prima imagine validă
+            const firstImage = (firstProductDetails?.images || []).filter(img => img)[0] || '';
             const readyClass = allReady ? 'bg-green-50' : 'bg-white';
             const readyIcon = allReady ? '<span class="material-icons text-green-500 absolute top-2 right-2" title="Palet Gata">task_alt</span>' : '';
 
@@ -378,11 +343,11 @@ export const templates = {
 
          const productsHTML = productsToShow.map(p => {
             const d = details[p.asin];
-            const firstImage = (d?.images || []).filter(img => img)[0] || ''; // Ia prima imagine validă
+            const firstImage = (d?.images || []).filter(img => img)[0] || '';
             const readyClass = p.listingReady ? 'bg-green-50' : 'bg-white';
             const readyIcon = p.listingReady ? '<span class="material-icons text-green-500" title="Gata de listat">task_alt</span>' : '';
 
-            return `<div class="flex items-center gap-4 ${readyClass} p-3 rounded-md shadow-sm cursor-pointer hover:bg-gray-50" data-product-id="${p.id}">
+            return `<div class="flex items-center gap-4 ${readyClass} p-3 rounded-md shadow-sm cursor-pointer hover:bg-gray-50" data-product-id="${p.uniqueId}">
                         <img src="${firstImage}" class="w-16 h-16 object-cover rounded-md bg-gray-200">
                         <div class="flex-1">
                             <p class="font-semibold line-clamp-2">${d?.title || 'N/A'}</p>
