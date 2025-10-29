@@ -58,8 +58,6 @@ export async function renderView(viewId, context = {}) {
                    foundProduct = cmd.products.find(p => p.uniqueId === context.productId);
                    // --- SFÂRȘIT MODIFICARE ---
                 }
-
-                // --- MODIFICARE: Folosim foundProduct ---
                 if (foundProduct) { [cite: 13]
                     console.log(`%cFolosind uniqueId-ul ${context.productId}, am găsit următorul obiect 'product' în AppState:`, "color: green; font-weight: bold;", JSON.parse(JSON.stringify(foundProduct))); [cite: 13]
                     console.log(`%cSe va deschide pagina de detalii pentru ASIN: ${foundProduct.asin}`, "color: green; font-weight: bold;"); [cite: 13]
