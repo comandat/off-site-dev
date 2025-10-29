@@ -4,9 +4,7 @@ import { renderView } from './viewRenderer.js';
 import { initGlobalListeners } from './lightbox.js';
 import { sendReadyToList, handleUploadSubmit, handleAsinUpdate } from './api.js';
 import { AppState, fetchDataAndSyncState } from './data.js'; 
-// --- MODIFICARE: Am importat 'templates' pentru a accesa 'financiarDetails' ---
 import { templates } from './templates.js';
-// --- SFÂRȘIT MODIFICARE ---
 import { 
     loadTabData, 
     handleProductSave, 
@@ -24,15 +22,35 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- INIȚIALIZARE EVENT LISTENERS ---
 
-    // Listener pentru click-uri pe sidebar și acțiuni principale
+    // --- MODIFICARE: Listener nou pentru Sidebar ---
+    // Folosim document.body pentru a prinde click-urile pe sidebar,
+    // deoarece sidebar-ul este ÎN AFARA 'mainContent'.
+    document.body.addEventListener('click', async (event) => {
+        const target = event.target;
+        const sidebarBtn = target.closest('.sidebar-btn');
+
+        // --- Navigare Sidebar ---
+        if (sidebarBtn) {
+            const view = sidebarBtn.dataset.view;
+            if (view) {
+                // Previne dubla-procesare de către alți listeneri
+                event.stopPropagation(); 
+                await renderView(view);
+                return;
+            }
+        }
+    });
+    // --- SFÂRȘIT MODIFICARE ---
+
+
+    // Listener pentru click-uri pe acțiuni principale (DOAR ÎN mainContent)
     mainContent.addEventListener('click', async (event) => {
         const target = event.target;
         
         // --- Selectori ---
-        // --- MODIFICARE: Adăugat 'sidebarBtn' ---
-        const sidebarBtn = target.closest('.sidebar-btn');
-        // --- SFÂRȘIT MODIFICARE ---
+        // --- MODIFICARE: Am scos 'sidebarBtn' de aici ---
         const commandCard = target.closest('[data-command-id]:not([data-action])');
+        // --- SFÂRȘIT MODIFICARE ---
         const palletCard = target.closest('[data-manifest-sku]');
         const productCard = target.closest('[data-product-id]');
         const actionButton = target.closest('[data-action]');
@@ -41,14 +59,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const descModeButton = target.closest('[data-action="toggle-description-mode"]');
         const thumbnail = target.closest('[data-action="select-thumbnail"]');
 
-        // --- Navigare Sidebar ---
-        if (sidebarBtn) {
-            const view = sidebarBtn.dataset.view;
-            if (view) {
-                await renderView(view);
-                return;
-            }
-        }
+        // --- MODIFICARE: Am scos logica 'sidebarBtn' de aici ---
 
         // --- Navigare Conținut ---
         if (commandCard) {
@@ -266,7 +277,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }, 300);
         }
         
-        // --- MODIFICARE: Calcul dinamic TVA pe pagina Financiar ---
+        // Calcul dinamic TVA pe pagina Financiar
         else if (event.target.id === 'financiar-total-fara-tva') {
             const totalFaraTVA = parseFloat(event.target.value) || 0;
             const totalCuTVA = totalFaraTVA * 1.21;
@@ -275,10 +286,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 tvaField.value = totalCuTVA.toFixed(2);
             }
         }
-        // --- SFÂRȘIT MODIFICARE ---
     });
 
-    // --- MODIFICARE: Listener nou pentru 'change' (selectorul de comandă) ---
+    // Listener nou pentru 'change' (selectorul de comandă)
     mainContent.addEventListener('change', async (event) => {
         if (event.target.id === 'financiar-command-select') {
             const commandId = event.target.value;
@@ -308,7 +318,6 @@ document.addEventListener('DOMContentLoaded', () => {
             detailsContainer.innerHTML = templates.financiarDetails(simulatedData);
         }
     });
-    // --- SFÂRȘIT MODIFICARE ---
 
     // Listener pentru submit (doar formularul de import)
     mainContent.addEventListener('submit', async (event) => {
