@@ -6,7 +6,7 @@ export const TITLE_GENERATION_WEBHOOK_URL = 'https://automatizare.comandat.ro/we
 export const ASIN_UPDATE_WEBHOOK_URL = 'https://automatizare.comandat.ro/webhook/5f107bd7-cc2b-40b7-8bbf-5e3a48667405';
 export const READY_TO_LIST_WEBHOOK_URL = 'https://automatizare.comandat.ro/webhook/124682e2-5f91-4c0a-adf6-4cedf16c2c19';
 export const TRANSLATION_WEBHOOK_URL = 'https://automatizare.comandat.ro/webhook/43760233-f351-44ea-8966-6f470e063ae7';
-
+export const DESCRIPTION_GENERATION_WEBHOOK_URL = 'https://automatizare.comandat.ro/webhook/6b3f30b0-5c57-47b5-9f15-bc8ea8c4960f';
 // --- NOU ---
 // Te rog înlocuiește 'URL_WEBHOOK_TRADUCERE_IMAGINI' cu URL-ul tău real
 export const IMAGE_TRANSLATION_WEBHOOK_URL = 'https://automatizare.comandat.ro/webhook/1d3020a8-ecf0-4c46-8611-bd2a284298b5';
