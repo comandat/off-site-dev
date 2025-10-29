@@ -22,10 +22,6 @@ export function initializeSortable() {
             ghostClass: 'bg-blue-100',
             forceFallback: true,
             onEnd: () => {
-                // Import saveCurrentTabData from product-details.js and call it
-                // This creates a circular dependency, so we'll call it from the event handler instead.
-                // For now, we rely on the main save function.
-                // A better way would be to dispatch a custom event 'images-sorted'
                 document.dispatchEvent(new CustomEvent('images-sorted'));
             }
         });
@@ -49,8 +45,6 @@ export function renderCompetitionStars(ratingString) {
 
 export function renderImageGallery(images) {
     
-    // --- MODIFICARE ---
-    // Verificăm dacă 'images' este null, undefined, SAU un array care conține doar valori "falsy" (ex: "")
     const isEffectivelyEmpty = (
         images === undefined || 
         images === null || 
@@ -58,7 +52,6 @@ export function renderImageGallery(images) {
     );
     
     if (isEffectivelyEmpty) {
-    // --- SFÂRȘIT MODIFICARE ---
     
         let buttonsHTML = `
             <button data-action="add-image-url" class="mt-4 w-full flex items-center justify-center space-x-2 p-2 text-sm text-blue-600 border border-blue-600 rounded-lg hover:bg-blue-50 transition-colors">
@@ -89,10 +82,8 @@ export function renderImageGallery(images) {
         `;
     }
 
-    // Filtrăm valorile goale (null, undefined, "") din array înainte de a-l folosi
     const filteredImages = images.filter(img => img);
     
-    // Folosim array-ul filtrat pentru a afișa
     const uniqueImages = [...new Set(filteredImages)];
     const imagesToRender = uniqueImages;
     const mainImageSrc = imagesToRender[0] || '';
@@ -100,7 +91,6 @@ export function renderImageGallery(images) {
     let thumbnailsHTML = '';
 
     for (let i = 0; i < 5; i++) {
-        // Folosim array-ul de-duplicat și filtrat
         const img = uniqueImages[i];
         if (img) {
             thumbnailsHTML += `
@@ -124,7 +114,6 @@ export function renderImageGallery(images) {
     }
 
     let addButtonHTML = '';
-    // Verificăm lungimea array-ului filtrat și de-duplicat
     if (uniqueImages.length < 5) {
         addButtonHTML = `
             <button data-action="add-image-url" class="mt-4 w-full flex items-center justify-center space-x-2 p-2 text-sm text-blue-600 border border-blue-600 rounded-lg hover:bg-blue-50 transition-colors">
@@ -145,6 +134,119 @@ export function renderImageGallery(images) {
 // --- OBIECTUL PRINCIPAL DE TEMPLATES ---
 
 export const templates = {
+
+    // --- MODIFICARE: Funcție helper adăugată pentru a formata câmpurile ---
+    /**
+     * Creează un câmp de formular pentru pagina financiară.
+     * @param {string} id - ID-ul elementului input
+     * @param {string} label - Textul pentru etichetă
+     * @param {string} value - Valoarea câmpului
+     * @param {boolean} readonly - Dacă câmpul este non-editabil
+     * @param {string} type - Tipul input-ului (text, number, date)
+     */
+    financiarInput: (id, label, value = '', readonly = false, type = 'text') => `
+        <div class="col-span-1">
+            <label for="${id}" class="block text-sm font-medium text-gray-500">${label}</label>
+            <input type="${type}" id="${id}" name="${id}" value="${value}" 
+                   class="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm 
+                          ${readonly ? 'bg-gray-100 text-gray-600 cursor-not-allowed' : 'bg-white'}" 
+                   ${readonly ? 'readonly' : ''}
+                   ${type === 'number' ? 'step="0.01"' : ''}>
+        </div>
+    `,
+
+    /**
+     * Template pentru detaliile financiare ale unei comenzi
+     * @param {object} commandData - Obiectul cu datele comenzii (sau null)
+     */
+    financiarDetails: (commandData) => {
+        if (!commandData) {
+            return '<p class="text-gray-500 text-center col-span-full">Selectați o comandă pentru a vedea detaliile.</p>';
+        }
+        
+        // Simulare date - acestea vor veni de la un API
+        const data = {
+            orderdate: commandData.orderdate || 'N/A',
+            totalordercostwithoutvat: commandData.totalordercostwithoutvat || 0,
+            transportcost: commandData.transportcost || 0,
+            discount: commandData.discount || 0,
+            currency: commandData.currency || 'EUR',
+            exchangerate: commandData.exchangerate || 1,
+        };
+        
+        // Calcul TVA
+        const totalCuTVA = (parseFloat(data.totalordercostwithoutvat) || 0) * 1.21;
+
+        return `
+            <div class="col-span-1">
+                <label class="block text-sm font-medium text-gray-500">Data Comenzii</label>
+                <input type="text" value="${data.orderdate}" 
+                       class="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm bg-gray-100 text-gray-600 cursor-not-allowed" readonly>
+            </div>
+            
+            ${templates.financiarInput('financiar-total-fara-tva', 'Total Comandă (fără TVA)', data.totalordercostwithoutvat, false, 'number')}
+            
+            <div class="col-span-1">
+                <label class="block text-sm font-medium text-gray-500">Total Comandă (cu TVA 21%)</label>
+                <input type="text" id="financiar-total-cu-tva" value="${totalCuTVA.toFixed(2)}" 
+                       class="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm bg-gray-100 text-gray-600 cursor-not-allowed" readonly>
+            </div>
+
+            ${templates.financiarInput('financiar-cost-transport', 'Cost Transport', data.transportcost, false, 'number')}
+            ${templates.financiarInput('financiar-reducere', 'Reducere', data.discount, false, 'number')}
+            ${templates.financiarInput('financiar-moneda', 'Monedă', data.currency, false, 'text')}
+            ${templates.financiarInput('financiar-rata-schimb', 'Rată de Schimb', data.exchangerate, false, 'number')}
+        `;
+    },
+
+    /**
+     * Template pentru pagina Financiar
+     * @param {Array} commands - Lista tuturor comenzilor
+     */
+    financiar: (commands) => {
+        const optionsHTML = commands.map(cmd => 
+            `<option value="${cmd.id}">${cmd.name}</option>`
+        ).join('');
+
+        return `
+        <div class="p-6 sm:p-8">
+            <h2 class="text-3xl font-bold text-gray-800 mb-6">Panou Financiar</h2>
+            
+            <div class="max-w-xl mb-8">
+                <label for="financiar-command-select" class="block text-sm font-medium text-gray-700 mb-2">Selectați Comanda</label>
+                <select id="financiar-command-select" class="w-full p-2 border border-gray-300 rounded-md shadow-sm bg-white">
+                    <option value="">Alegeți o comandă...</option>
+                    ${optionsHTML}
+                </select>
+            </div>
+            
+            <div id="financiar-details-container" 
+                 class="p-6 bg-white rounded-lg shadow-md grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                ${templates.financiarDetails(null)}
+            </div>
+            
+            <div class="mt-8 p-6 bg-white rounded-lg shadow-md min-h-[200px]">
+                <h3 class="text-lg font-semibold text-gray-700">Secțiune Viitoare</h3>
+                <p class="text-gray-500 mt-2">Acest spațiu este rezervat pentru actualizări viitoare.</p>
+            </div>
+        </div>
+        `;
+    },
+
+    /**
+     * Template pentru pagina Export Date (Placeholder)
+     */
+    exportDate: () => `
+        <div class="p-6 sm:p-8">
+            <h2 class="text-3xl font-bold text-gray-800 mb-6">Export Date</h2>
+            <div class="p-6 bg-white rounded-lg shadow-md">
+                <p class="text-gray-600">Această secțiune este în construcție.</p>
+            </div>
+        </div>
+    `,
+    // --- SFÂRȘIT MODIFICARE ---
+
+
     comenzi: (commands) => {
         const commandsHTML = commands.length > 0
             ? commands.map(cmd => {
@@ -236,13 +338,13 @@ export const templates = {
 
          productsToShow.sort((a, b) => (a.listingReady === b.listingReady) ? 0 : a.listingReady ? 1 : -1);
 
-        const productsHTML = productsToShow.map(p => {
+         const productsHTML = productsToShow.map(p => {
             const d = details[p.asin];
             const firstImage = (d?.images || []).filter(img => img)[0] || ''; // Ia prima imagine validă
             const readyClass = p.listingReady ? 'bg-green-50' : 'bg-white';
             const readyIcon = p.listingReady ? '<span class="material-icons text-green-500" title="Gata de listat">task_alt</span>' : '';
 
-            return `<div class="flex items-center gap-4 ${readyClass} p-3 rounded-md shadow-sm cursor-pointer hover:bg-gray-50" data-product-id="${p.uniqueId}">
+            return `<div class="flex items-center gap-4 ${readyClass} p-3 rounded-md shadow-sm cursor-pointer hover:bg-gray-50" data-product-id="${p.id}">
                         <img src="${firstImage}" class="w-16 h-16 object-cover rounded-md bg-gray-200">
                         <div class="flex-1">
                             <p class="font-semibold line-clamp-2">${d?.title || 'N/A'}</p>
