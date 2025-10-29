@@ -236,14 +236,52 @@ export const templates = {
     /**
      * Template pentru pagina Export Date (Placeholder)
      */
-    exportDate: () => `
+    // --- MODIFICARE: Template actualizat pentru Export Date ---
+    exportDate: (commands) => {
+        const optionsHTML = commands.map(cmd => 
+            `<option value="${cmd.id}">${cmd.name}</option>`
+        ).join('');
+
+        return `
         <div class="p-6 sm:p-8">
             <h2 class="text-3xl font-bold text-gray-800 mb-6">Export Date</h2>
-            <div class="p-6 bg-white rounded-lg shadow-md">
-                <p class="text-gray-600">Această secțiune este în construcție.</p>
+            
+            <div class="max-w-xl mb-8">
+                <label for="export-command-select" class="block text-sm font-medium text-gray-700 mb-2">Selectați Comanda</label>
+                <select id="export-command-select" class="w-full p-2 border border-gray-300 rounded-md shadow-sm bg-white">
+                    <option value="">Alegeți o comandă...</option>
+                    ${optionsHTML}
+                </select>
+            </div>
+            
+            <div id="export-actions-container" 
+                 class="p-6 bg-white rounded-lg shadow-md grid grid-cols-1 md:grid-cols-2 gap-6 hidden">
+                
+                <div class="col-span-1 p-4 border rounded-lg">
+                    <h3 class="text-lg font-semibold text-gray-700">Listare Preliminară</h3>
+                    <p class="text-sm text-gray-500 mt-2 mb-4">Generează un CSV cu produsele marcate "Gata de listat" (listingready=true), cu stoc '1' și datele din RO.</p>
+                    <button id="export-preliminar-btn" data-action="export-preliminar" class="w-full flex justify-center items-center px-4 py-2 text-sm font-bold text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:bg-gray-400">
+                        <span class="button-text">Generează Listare Preliminară</span>
+                        <div class="button-loader hidden w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                    </button>
+                </div>
+
+                <div class="col-span-1 p-4 border rounded-lg">
+                    <h3 class="text-lg font-semibold text-gray-700">Update cu Stoc Real</h3>
+                    <p class="text-sm text-gray-500 mt-2 mb-4">Generează un CSV (SKU, Stock) doar cu produsele verificate (listingready=true și verificationready=true) și stocul 'bncondition'.</p>
+                    <button id="export-stoc-real-btn" data-action="export-stoc-real" class="w-full flex justify-center items-center px-4 py-2 text-sm font-bold text-white bg-green-600 rounded-lg hover:bg-green-700 disabled:bg-gray-400">
+                        <span class="button-text">Generează Update Stoc Real</span>
+                        <div class="button-loader hidden w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                    </button>
+                </div>
+            </div>
+
+            <div id="export-placeholder" class="p-6 bg-white rounded-lg shadow-md">
+                 <p class="text-gray-500 text-center">Selectați o comandă pentru a vedea acțiunile de export.</p>
             </div>
         </div>
-    `,
+        `;
+    },
     // --- SFÂRȘIT MODIFICARE ---
 
 
@@ -344,7 +382,7 @@ export const templates = {
             const readyClass = p.listingReady ? 'bg-green-50' : 'bg-white';
             const readyIcon = p.listingReady ? '<span class="material-icons text-green-500" title="Gata de listat">task_alt</span>' : '';
 
-return `<div class="flex items-center gap-4 ${readyClass} p-3 rounded-md shadow-sm cursor-pointer hover:bg-gray-50" data-product-id="${p.uniqueId}">
+            return `<div class="flex items-center gap-4 ${readyClass} p-3 rounded-md shadow-sm cursor-pointer hover:bg-gray-50" data-product-id="${p.id}">
                         <img src="${firstImage}" class="w-16 h-16 object-cover rounded-md bg-gray-200">
                         <div class="flex-1">
                             <p class="font-semibold line-clamp-2">${d?.title || 'N/A'}</p>
