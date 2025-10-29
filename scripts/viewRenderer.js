@@ -32,6 +32,18 @@ export async function renderView(viewId, context = {}) {
             case 'import':
                 html = templates.import();
                 break;
+            
+            // --- MODIFICARE: Cazuri noi adăugate ---
+            case 'financiar':
+                // Asigură-te că avem lista de comenzi pentru dropdown
+                await fetchDataAndSyncState(); 
+                html = templates.financiar(AppState.getCommands());
+                break;
+            case 'exportDate':
+                html = templates.exportDate();
+                break;
+            // --- SFÂRȘIT MODIFICARE ---
+                
              case 'paleti':
                 const commandForPaleti = AppState.getCommands().find(c => c.id === context.commandId);
                 if (commandForPaleti) {
@@ -92,17 +104,15 @@ export async function renderView(viewId, context = {}) {
                 state.competitionDataCache = null;
                 const cmd = AppState.getCommands().find(c => c.id === context.commandId);
                 if (cmd) {
-                   product = cmd.products.find(p => p.uniqueId === context.productId);
+                   product = cmd.products.find(p => p.id === context.productId);
                 }
 
-                // --- DEBUG START ---
                 if (product) {
                     console.log(`%cFolosind ID-ul ${context.productId}, am găsit următorul obiect 'product' în AppState:`, "color: green; font-weight: bold;", JSON.parse(JSON.stringify(product)));
                     console.log(`%cSe va deschide pagina de detalii pentru ASIN: ${product.asin}`, "color: green; font-weight: bold;");
                 } else {
                     console.error(`EROARE: Nu am găsit niciun produs cu ID-ul ${context.productId} în comandă.`);
                 }
-                // --- DEBUG END ---
 
                 if (product) {
                     const detailsMap = await fetchProductDetailsInBulk([product.asin]);
@@ -112,11 +122,7 @@ export async function renderView(viewId, context = {}) {
                         productDetails.images = [];
                     }
                     
-                    // --- CORECTURĂ ---
-                    // Filtrăm valorile goale ("") primite din baza de date
-                    // pentru a fi consistenți cu logica de salvare și afișare.
                     productDetails.images = productDetails.images.filter(img => img);
-                    // --- SFÂRȘIT CORECTURĂ ---
 
                     state.editedProductData = JSON.parse(JSON.stringify(productDetails));
                     state.activeVersionKey = 'origin';
@@ -163,11 +169,7 @@ export async function renderView(viewId, context = {}) {
         const galleryContainer = document.getElementById('image-gallery-container');
         if (galleryContainer) {
             galleryContainer.innerHTML = renderImageGallery(state.editedProductData.images);
-            
-             // --- MODIFICARE (Corecție Sortable.js) ---
-             // Apelăm necondiționat. Funcția 'initializeSortable' se ocupă de logică.
              initializeSortable();
-             // --- SFÂRȘIT MODIFICARE ---
         }
         fetchAndRenderCompetition(product.asin);
     }
