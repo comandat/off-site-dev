@@ -1,4 +1,3 @@
-// scripts/main.js
 import { state } from './state.js';
 import { renderView } from './viewRenderer.js';
 import { initGlobalListeners } from './lightbox.js';
@@ -16,60 +15,42 @@ import {
     saveProductCoreData,
     handleImageTranslation
 } from './product-details.js';
-// --- NOU ---
 import { 
     handleExportPreliminar, 
     handleExportStocReal, 
     convertToCSV, 
     downloadCSV 
 } from './export.js';
-// --- SFÂRȘIT NOU ---
 
 document.addEventListener('DOMContentLoaded', () => {
     const mainContent = document.getElementById('main-content');
 
-    // --- INIȚIALIZARE EVENT LISTENERS ---
-
-    // --- MODIFICARE: Listener nou pentru Sidebar ---
-    // Folosim document.body pentru a prinde click-urile pe sidebar,
-    // deoarece sidebar-ul este ÎN AFARA 'mainContent'.
     document.body.addEventListener('click', async (event) => {
         const target = event.target;
         const sidebarBtn = target.closest('.sidebar-btn');
 
-        // --- Navigare Sidebar ---
         if (sidebarBtn) {
             const view = sidebarBtn.dataset.view;
             if (view) {
-                // Previne dubla-procesare de către alți listeneri
                 event.stopPropagation(); 
                 await renderView(view);
                 return;
             }
         }
     });
-    // --- SFÂRȘIT MODIFICARE ---
 
-
-    // Listener pentru click-uri pe acțiuni principale (DOAR ÎN mainContent)
     mainContent.addEventListener('click', async (event) => {
         const target = event.target;
         
-        // --- Selectori ---
-        // --- MODIFICARE: Am scos 'sidebarBtn' de aici ---
         const commandCard = target.closest('[data-command-id]:not([data-action])');
-        // --- SFÂRȘIT MODIFICARE ---
         const palletCard = target.closest('[data-manifest-sku]');
-        const productCard = target.closest('[data-product-id]:not([data-action="go-to-product"])'); // Exclude noul link
+        const productCard = target.closest('[data-product-id]:not([data-action="go-to-product"])');
         const actionButton = target.closest('[data-action]');
         const versionButton = target.closest('.version-btn');
         const languageOption = target.closest('.language-option');
         const descModeButton = target.closest('[data-action="toggle-description-mode"]');
         const thumbnail = target.closest('[data-action="select-thumbnail"]');
 
-        // --- MODIFICARE: Am scos logica 'sidebarBtn' de aici ---
-
-        // --- Navigare Conținut ---
         if (commandCard) {
             state.currentSearchQuery = '';
             state.currentCommandId = commandCard.dataset.commandId;
@@ -94,7 +75,6 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
-        // --- Tab-uri și UI Produs ---
         if (versionButton) {
             loadTabData(versionButton.dataset.versionKey);
             return;
@@ -123,25 +103,21 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
-        // --- Acțiuni (Butoane) ---
         if (actionButton) {
             const action = actionButton.dataset.action;
 
-            // --- NOU: Navigare din lista de erori ---
             if (action === 'go-to-product') {
-                event.preventDefault(); // Oprește link-ul
+                event.preventDefault(); 
                 const commandId = actionButton.dataset.commandId;
-                const productId = actionButton.dataset.productId; // Acesta e uniqueId
+                const productId = actionButton.dataset.productId; 
 
                 if (!commandId || !productId) {
                     alert('Eroare: ID-ul comenzii sau al produsului lipsește.');
                     return;
                 }
                 
-                // Salvează starea curentă a exportului
                 state.currentView = 'exportDate';
                 
-                // Găsește produsul în AppState pentru a seta starea corect
                 const command = AppState.getCommands().find(c => c.id === commandId);
                 const product = command?.products.find(p => p.uniqueId === productId);
 
@@ -150,7 +126,6 @@ document.addEventListener('DOMContentLoaded', () => {
                     state.currentManifestSKU = product.manifestsku || 'No ManifestSKU';
                     state.currentProductId = productId;
                     
-                    // Schimbă view-ul
                     await renderView('produs-detaliu', {
                         commandId: state.currentCommandId,
                         productId: state.currentProductId
@@ -158,11 +133,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 } else {
                     alert('Eroare: Nu s-a putut găsi produsul pentru navigare.');
                 }
-                return; // Oprește execuția
+                return; 
             }
-            // --- SFÂRȘIT NOU ---
 
-            // Navigare "Back"
             if (action === 'back-to-comenzi') {
                 state.currentCommandId = null;
                 state.currentManifestSKU = null;
@@ -177,16 +150,27 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             if (action === 'back-to-produse') {
                 state.currentProductId = null;
-                // --- MODIFICARE: Verifică dacă ne întoarcem din pagina de export
                 const lastView = state.currentView === 'exportDate' ? 'exportDate' : 'produse';
                 if (lastView === 'exportDate') {
                     await renderView('exportDate');
+                    
+                    const select = document.getElementById('export-command-select');
+                    if (select && state.currentCommandId) { 
+                        select.value = state.currentCommandId;
+                        select.dispatchEvent(new Event('change', { bubbles: true }));
+                        
+                        const prelimBtn = document.getElementById('export-preliminar-btn');
+                        if(prelimBtn) {
+                            await new Promise(resolve => setTimeout(resolve, 0));
+                            await handleExportPreliminar(state.currentCommandId, prelimBtn);
+                        }
+                    }
+
                 } else {
                     await renderView('produse', { commandId: state.currentCommandId, manifestSKU: state.currentManifestSKU });
                 }
             }
 
-            // Acțiuni API "Ready to List"
             if (action === 'ready-to-list-single') {
                 const asin = actionButton.dataset.asin;
                 const orderId = actionButton.dataset.orderId;
@@ -240,7 +224,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 actionButton.closest('.dropdown-menu')?.classList.add('hidden');
             }
 
-            // Acțiuni Pagină Produs
             if (action === 'edit-asin') {
                 const success = await handleAsinUpdate(actionButton);
                 if (success) {
@@ -256,18 +239,20 @@ document.addEventListener('DOMContentLoaded', () => {
             if (action === 'save-product') {
                 const success = await handleProductSave(actionButton);
                 if (success) {
-                    // --- MODIFICARE: Verifică dacă ne întoarcem la export sau la produse
                     const lastView = state.currentView === 'exportDate' ? 'exportDate' : 'produse';
                     if (lastView === 'exportDate') {
                         await renderView('exportDate');
-                        // Simulează re-selectarea comenzii pentru a reîncărca acțiunile
+                        
                         const select = document.getElementById('export-command-select');
                         if (select && state.currentCommandId) {
                             select.value = state.currentCommandId;
                             select.dispatchEvent(new Event('change', { bubbles: true }));
-                            // Rulează automat generarea listei
+                            
                             const prelimBtn = document.getElementById('export-preliminar-btn');
-                            if(prelimBtn) await handleExportPreliminar(state.currentCommandId, prelimBtn);
+                            if(prelimBtn) {
+                                await new Promise(resolve => setTimeout(resolve, 0));
+                                await handleExportPreliminar(state.currentCommandId, prelimBtn);
+                            }
                         }
                     } else {
                         await renderView('produse', { commandId: state.currentCommandId, manifestSKU: state.currentManifestSKU });
@@ -304,7 +289,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 handleImageActions(action, actionButton);
             }
 
-            // --- MODIFICAT: Acțiuni Export ---
             if (action === 'export-preliminar') {
                 const commandId = document.getElementById('export-command-select')?.value;
                 if (commandId) {
@@ -321,7 +305,6 @@ document.addEventListener('DOMContentLoaded', () => {
                     alert('Vă rugăm selectați o comandă.');
                 }
             }
-            // --- NOU: Descărcare ---
             if (action === 'download-preliminar') {
                 if (state.lastExportData && state.lastExportData.length > 0) {
                     const csvString = convertToCSV(state.lastExportData);
@@ -331,21 +314,17 @@ document.addEventListener('DOMContentLoaded', () => {
                     alert("Eroare: Nu există date de descărcat. Generați mai întâi lista.");
                 }
             }
-            // --- SFÂRȘIT NOU ---
         }
     });
 
-    // Listener pentru input (căutare, filtre, și calcul TVA)
     mainContent.addEventListener('input', async (event) => {
         
-        // Căutare limbă (dropdown traduceri)
         if (event.target.id === 'language-search') {
             const filter = event.target.value.toLowerCase();
             document.querySelectorAll('#language-list .language-option').forEach(link => {
                 link.style.display = link.textContent.toLowerCase().includes(filter) ? '' : 'none';
             });
         }
-        // Căutare produs (paginile paleti/produse)
         else if (event.target.id === 'product-search-input') {
             state.currentSearchQuery = event.target.value;
             state.productScrollPosition = 0;
@@ -370,7 +349,6 @@ document.addEventListener('DOMContentLoaded', () => {
             }, 300);
         }
         
-        // Calcul dinamic TVA pe pagina Financiar
         else if (event.target.id === 'financiar-total-fara-tva') {
             const totalFaraTVA = parseFloat(event.target.value) || 0;
             const totalCuTVA = totalFaraTVA * 1.21;
@@ -381,7 +359,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    // Listener nou pentru 'change' (selectorul de comandă)
     mainContent.addEventListener('change', async (event) => {
         if (event.target.id === 'financiar-command-select') {
             const commandId = event.target.value;
@@ -393,34 +370,29 @@ document.addEventListener('DOMContentLoaded', () => {
                 return;
             }
 
-            // TODO: Înlocuiește cu un fetch real pentru datele financiare
-            // Deocamdată, folosim date simulate și ID-ul comenzii
             console.log(`TODO: Se încarcă datele financiare pentru Comanda ${commandId}`);
             
-            // Simulare date - acestea vor veni de la un API
             const simulatedData = {
                 id: commandId,
-                orderdate: "2022-10-28", // Simulat
-                totalordercostwithoutvat: 1234.50, // Simulat
-                transportcost: 150, // Simulat
-                discount: 25, // Simulat
-                currency: "EUR", // Simulat
-                exchangerate: 1.0 // Simulat
+                orderdate: "2025-10-28", 
+                totalordercostwithoutvat: 1234.50, 
+                transportcost: 150, 
+                discount: 25, 
+                currency: "EUR", 
+                exchangerate: 1.0 
             };
             
             detailsContainer.innerHTML = templates.financiarDetails(simulatedData);
         }
 
-        // --- MODIFICAT: Selector Comandă Export ---
         if (event.target.id === 'export-command-select') {
             const commandId = event.target.value;
             const actionsContainer = document.getElementById('export-actions-container');
             const placeholder = document.getElementById('export-placeholder');
             const previewContainer = document.getElementById('export-preview-container');
 
-            // Golește mereu previzualizarea la schimbarea comenzii
             if (previewContainer) previewContainer.innerHTML = '';
-            state.lastExportData = null; // Resetează datele
+            state.lastExportData = null; 
 
             if (commandId) {
                 if (actionsContainer) actionsContainer.classList.remove('hidden');
@@ -430,10 +402,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (placeholder) placeholder.classList.remove('hidden');
             }
         }
-        // --- SFÂRȘIT MODIFICAT ---
     });
 
-    // Listener pentru submit (doar formularul de import)
     mainContent.addEventListener('submit', async (event) => {
         if (event.target.id === 'upload-form') {
             const success = await handleUploadSubmit(event);
@@ -443,17 +413,30 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    // Listener pentru sortarea imaginilor (eveniment custom)
     document.addEventListener('images-sorted', () => {
         console.log("Images sorted, saving tab data...");
         saveCurrentTabData();
     });
 
-    // Inițializează listener-ii globali (dropdowns, lightbox)
     initGlobalListeners();
 
-    // --- PORNIRE APLICAȚIE ---
-    // Verifică dacă există o vizualizare salvată (de ex. după un refresh)
     const lastView = state.currentView || 'comenzi';
-    renderView(lastView);
+    
+    if (lastView === 'exportDate' && state.currentCommandId) {
+        await renderView('exportDate');
+        
+        const select = document.getElementById('export-command-select');
+        if (select) {
+            select.value = state.currentCommandId;
+            select.dispatchEvent(new Event('change', { bubbles: true }));
+            
+            const prelimBtn = document.getElementById('export-preliminar-btn');
+            if (prelimBtn) {
+                await new Promise(resolve => setTimeout(resolve, 0));
+                await handleExportPreliminar(state.currentCommandId, prelimBtn);
+            }
+        }
+    } else {
+        renderView(lastView);
+    }
 });
