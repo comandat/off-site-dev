@@ -1,12 +1,6 @@
-// scripts/export.js
 import { AppState, fetchProductDetailsInBulk } from './data.js';
 import { state } from './state.js';
 
-// --- FUNCȚII HELPER ---
-
-/**
- * Afișează/Ascunde loader-ul unui buton
- */
 function toggleButtonLoader(button, isLoading) {
     if (!button) return;
     const btnText = button.querySelector('.button-text');
@@ -17,9 +11,6 @@ function toggleButtonLoader(button, isLoading) {
     if (btnLoader) btnLoader.classList.toggle('hidden', !isLoading);
 }
 
-/**
- * Convertește un array de obiecte în string CSV
- */
 export function convertToCSV(data) {
     if (!data || data.length === 0) return '';
     
@@ -31,9 +22,7 @@ export function convertToCSV(data) {
         const values = headers.map(header => {
             let cell = row[header] === null || row[header] === undefined ? '' : row[header];
             cell = String(cell);
-            // Escape quotes
             cell = cell.replace(/"/g, '""');
-            // Wrap in quotes if it contains comma, newline, or quote
             if (cell.includes(',') || cell.includes('\n') || cell.includes('"')) {
                 cell = `"${cell}"`;
             }
@@ -44,9 +33,6 @@ export function convertToCSV(data) {
     return csvRows.join('\n');
 }
 
-/**
- * Forțează descărcarea unui fișier CSV
- */
 export function downloadCSV(csvString, fileName) {
     const blob = new Blob([csvString], { type: 'text/csv;charset=utf-8;' });
     const link = document.createElement('a');
@@ -62,9 +48,6 @@ export function downloadCSV(csvString, fileName) {
     }
 }
 
-/**
- * Generează un string alfanumeric random
- */
 function generateRandomStockCode(length = 12) {
     const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
     let result = '';
@@ -77,25 +60,19 @@ function generateRandomStockCode(length = 12) {
 const eanPrefixes = ['615', '603', '617', '865', '529', '535', '479', '470', '390'];
 let eanPrefixIndex = 0;
 
-/**
- * Generează EAN-13 conform funcției cerute.
- */
 function generateEAN() {
-    // 1. Definim prefixul, alternând
     if (eanPrefixIndex >= eanPrefixes.length) {
         eanPrefixIndex = 0;
     }
     var prefix = eanPrefixes[eanPrefixIndex];
     eanPrefixIndex++;
 
-    // 2. Generăm 9 cifre aleatorii
     var randomNumber = Math.floor(Math.random() * 900000000) + 100000000;
     var base12 = prefix + randomNumber.toString();
     
     var oddSum = 0;
     var evenSum = 0;
 
-    // 3. Calculăm suma
     for (var i = 0; i < base12.length; i++) {
         var digit = parseInt(base12[i], 10);
         if ((i + 1) % 2 !== 0) {
@@ -105,50 +82,34 @@ function generateEAN() {
         }
     }
 
-    // 4. Calculăm cifra de control
     var totalSum = oddSum + (evenSum * 3);
     var checkDigit = (10 - (totalSum % 10)) % 10;
     
-    // 5. Formăm codul final
     var finalEAN = base12 + checkDigit.toString();
     return finalEAN;
 }
 
-/**
- * Elimină diacriticele
- */
 function removeDiacritics(str) {
     if (typeof str !== 'string') return str;
     return str.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 }
 
-/**
- * Verificare simplistă dacă textul e (posibil) în engleză
- */
 function isLikelyEnglish(str) {
     if (!str || str.length < 10) return false;
-    // Verifică prezența unor cuvinte comune în engleză
     const commonWords = /\b(the|and|is|are|you|of|in|to)\b/gi;
     const matches = (str.match(commonWords) || []).length;
     
-    // Verifică absența diacriticelor românești
     const romanianChars = /[ăâîșț]/i;
     
-    // Dacă are cuvinte în engleză ȘI nu are diacritice românești
     if (matches > 2 && !romanianChars.test(str)) {
         return true;
     }
     return false;
 }
 
-// --- FUNCȚII PRINCIPALE DE EXPORT ---
-
-/**
- * Handler pentru "Listare Preliminara"
- */
 export async function handleExportPreliminar(commandId, button) {
     toggleButtonLoader(button, true);
-    eanPrefixIndex = 0; // Resetează indexul EAN
+    eanPrefixIndex = 0; 
     const previewContainer = document.getElementById('export-preview-container');
     if (!previewContainer) return;
     previewContainer.innerHTML = '<p class="text-center text-gray-500">Se validează datele...</p>';
@@ -182,7 +143,6 @@ export async function handleExportPreliminar(commandId, button) {
 
             const roData = details.other_versions?.['romanian'] || {};
             
-            // --- PROCESARE DATE ---
             let name = (roData.title || details.title || '').trim();
             let description = (roData.description || details.description || '').trim();
             const brand = details.brand || '';
@@ -192,28 +152,22 @@ export async function handleExportPreliminar(commandId, button) {
             if (!Array.isArray(roImages)) roImages = [];
             roImages = roImages.filter(img => img); 
 
-            const stockCode = product.stockcode || generateRandomStockCode(); // Fallback la generare
-            const unitWeight = product.unitweight || 1; // Fallback 1
-            const taxRate = 0; // Valoare fixă
+            const stockCode = product.stockcode || generateRandomStockCode(); 
+            const unitWeight = product.unitweight || 1; 
+            const taxRate = 0; 
             
-            // --- VALIDARE ---
-            
-            // 1. Preț
             if (basePrice === 0) {
                 productErrors.push("Preț 0 sau inexistent. (Verifică 'Preț estimat' în pagina produsului)");
             }
             
-            // 2. Imagini
             if (roImages.length === 0) {
                 productErrors.push("Nu există nicio poză (pentru tab-ul RO sau 'Origin').");
             }
             
-            // 3. Cod Stoc
             if (stockCode.length !== 12) {
                 productErrors.push(`Codul de stoc generat/existent are ${stockCode.length} caractere (așteptat 12).`);
             }
             
-            // 4. Titlu (Name)
             if (!name) {
                 productErrors.push("Titlul lipsește.");
             } else if (name.length < 10) {
@@ -230,7 +184,6 @@ export async function handleExportPreliminar(commandId, button) {
                 }
             }
             
-            // 5. Descriere
             if (!description) {
                 productErrors.push("Descrierea lipsește.");
             } else if (description.length < 10) {
@@ -239,7 +192,6 @@ export async function handleExportPreliminar(commandId, button) {
                 productErrors.push("Descrierea pare a fi în engleză, nu în română.");
             }
 
-            // --- SALVARE ERORI ---
             if (productErrors.length > 0) {
                 errorList.push({
                     asin: product.asin,
@@ -250,12 +202,9 @@ export async function handleExportPreliminar(commandId, button) {
                 });
             }
             
-            // --- CURĂȚARE FINALĂ PENTRU CSV ---
             name = removeDiacritics(name);
             description = removeDiacritics(description);
             
-            // --- CALCUL PREȚ PENTRU CSV ---
-            // Am presupus 'produsului * 10%' ca fiind un markup de 10%
             const salePriceWithTax = basePrice * 1.10; 
             const salePriceWithoutTax = (100 - taxRate) / 100 * salePriceWithTax;
             const fullPriceWithTax = 2 * salePriceWithTax;
@@ -279,15 +228,12 @@ export async function handleExportPreliminar(commandId, button) {
             });
         }
         
-        // --- PREGĂTIRE REZULTAT PENTRU STOCARE ---
-        // Stochează datele în state *doar dacă nu sunt erori*
         if (errorList.length === 0) {
             state.lastExportData = validatedData;
         } else {
-            state.lastExportData = null; // Blochează descărcarea
+            state.lastExportData = null; 
         }
         
-        // --- RANDARE REZULTAT ÎN HTML ---
         previewContainer.innerHTML = renderPreview(errorList, validatedData);
 
     } catch (error) {
@@ -299,9 +245,6 @@ export async function handleExportPreliminar(commandId, button) {
     }
 }
 
-/**
- * Randează HTML-ul pentru secțiunea de previzualizare
- */
 function renderPreview(errors, data) {
     let errorsHTML = '';
     const hasErrors = errors.length > 0;
@@ -311,7 +254,8 @@ function renderPreview(errors, data) {
             <div class="bg-red-50 border border-red-200 p-4 rounded-lg mb-6">
                 <h3 class="text-lg font-bold text-red-800">S-au găsit ${errors.length} produse cu erori:</h3>
                 <p class="text-red-700 mb-4">Rezolvați aceste probleme înainte de a putea descărca fișierul CSV.</p>
-                <ul class="list-disc pl-5 space-y-2">
+                <div class="max-h-64 overflow-y-auto border rounded-md bg-white p-4 mt-4">
+                    <ul class="list-disc pl-5 space-y-2">
         `;
         for (const item of errors) {
             errorsHTML += `
@@ -329,7 +273,7 @@ function renderPreview(errors, data) {
                 </li>
             `;
         }
-        errorsHTML += '</ul></div>';
+        errorsHTML += '</ul></div></div>';
     } else {
         errorsHTML = `
             <div class="bg-green-50 border border-green-200 p-4 rounded-lg mb-6">
@@ -339,7 +283,6 @@ function renderPreview(errors, data) {
         `;
     }
 
-    // Creare Tabel
     const headers = Object.keys(data[0] || {});
     let tableHTML = `
         <div class="flex justify-end mb-4">
@@ -360,20 +303,8 @@ function renderPreview(errors, data) {
                 <tbody class="bg-white divide-y divide-gray-200">
     `;
     
-    // Sortare: erorile primele (deși nu mai e necesar dacă blochez descărcarea)
-    const errorASINs = new Set(errors.map(e => e.asin));
-    data.sort((a, b) => {
-        const aHasError = errorASINs.has(a.SKU.replace('CN', ''));
-        const bHasError = errorASINs.has(b.SKU.replace('CN', ''));
-        if (aHasError && !bHasError) return -1;
-        if (!aHasError && bHasError) return 1;
-        return 0;
-    });
-
-
     for (const row of data) {
-        const hasError = errorASINs.has(row.SKU.replace('CN', ''));
-        tableHTML += `<tr class="${hasError ? 'bg-red-50' : ''}">`;
+        tableHTML += `<tr>`;
         for (const header of headers) {
             let cell = row[header] === null || row[header] === undefined ? '' : String(row[header]);
             if (header === 'Description' || header === 'Name' || header === 'Images') {
@@ -389,10 +320,6 @@ function renderPreview(errors, data) {
     return errorsHTML + tableHTML;
 }
 
-
-/**
- * Handler pentru "Update cu Stoc Real"
- */
 export function handleExportStocReal(commandId, button) {
     toggleButtonLoader(button, true);
 
@@ -401,11 +328,9 @@ export function handleExportStocReal(commandId, button) {
         if (!command) throw new Error('Comanda nu a fost găsită.');
         
         const productsToExport = command.products.filter(
-            // TODO: Câmpul 'verificationready' trebuie să vină din webhook
-            p => p.listingReady === true && (p.verificationready === true || p.verificationready === undefined) // Am relaxat regula
+            p => p.listingReady === true && (p.verificationready === true || p.verificationready === undefined) 
         );
         
-        // --- FALLBACK ---
         if (command.products.some(p => p.verificationready === undefined) && productsToExport.length > 0) {
              console.warn("Se pare că 'verificationready' nu este disponibil în datele produselor. Se continuă filtrarea doar după 'listingReady=true'...");
              
@@ -422,7 +347,7 @@ export function handleExportStocReal(commandId, button) {
 
         const csvData = productsToExport.map(product => ({
             "SKU": `${product.asin}CN`,
-            "Stock": product.bncondition || 0 // Folosim stocul 'bncondition'
+            "Stock": product.bncondition || 0 
         }));
 
         const csvString = convertToCSV(csvData);
