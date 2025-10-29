@@ -5,7 +5,8 @@ import {
     COMPETITION_WEBHOOK_URL, 
     TITLE_GENERATION_WEBHOOK_URL, 
     TRANSLATION_WEBHOOK_URL, 
-    IMAGE_TRANSLATION_WEBHOOK_URL 
+    IMAGE_TRANSLATION_WEBHOOK_URL,
+    DESCRIPTION_GENERATION_WEBHOOK_URL // <-- Adăugat
 } from './constants.js';
 import { renderImageGallery, initializeSortable, templates } from './templates.js';
 import { saveProductDetails } from './data.js';
@@ -149,6 +150,14 @@ export function loadTabData(versionKey) {
         const isRomanianTab = languageNameToCodeMap[versionKey.toLowerCase()] === 'RO';
         refreshBtn.classList.toggle('hidden', !isRomanianTab);
     }
+    
+    // --- ADAUGAT ACEST BLOC ---
+    const refreshDescBtn = document.getElementById('refresh-description-btn');
+    if (refreshDescBtn) {
+        const isRomanianTab = languageNameToCodeMap[versionKey.toLowerCase()] === 'RO';
+        refreshDescBtn.classList.toggle('hidden', !isRomanianTab);
+    }
+    // --- SFÂRȘIT BLOC NOU ---
 }
 
 
@@ -330,6 +339,66 @@ export async function handleTitleRefresh(actionButton) {
     }
 }
 
+// --- ADAUGĂ ACEASTĂ FUNCȚIE NOUĂ ---
+export async function handleDescriptionRefresh(actionButton) {
+    const refreshBtn = actionButton;
+    const refreshIcon = refreshBtn.querySelector('.refresh-icon');
+    const refreshSpinner = refreshBtn.querySelector('.refresh-spinner');
+    
+    // Preluăm datele 'origin', conform cerinței
+    const originTitle = state.editedProductData.title;
+    const originDescription = state.editedProductData.description;
+    
+    if (!originTitle || !originDescription) {
+        alert('Eroare: Titlul sau descrierea "origin" nu sunt disponibile.');
+        return;
+    }
+    
+    refreshIcon.classList.add('hidden');
+    refreshSpinner.classList.remove('hidden');
+    refreshBtn.disabled = true;
+    
+    const payload = { title: originTitle, description: originDescription };
+    
+    try {
+        const response = await fetch(DESCRIPTION_GENERATION_WEBHOOK_URL, { 
+            method: 'POST', 
+            headers: { 'Content-Type': 'application/json' }, 
+            body: JSON.stringify(payload) 
+        });
+        if (!response.ok) { throw new Error(`Eroare HTTP: ${response.status}`); }
+        
+        const result = await response.json();
+        
+        if (result.output) {
+            const newDescription = result.output;
+            
+            // Actualizează UI
+            const rawEl = document.getElementById('product-description-raw');
+            const previewEl = document.getElementById('product-description-preview');
+            if (rawEl) rawEl.value = newDescription;
+            if (previewEl) previewEl.innerHTML = newDescription;
+
+            // Actualizează state pentru tab-ul 'romanian'
+            const roKey = 'romanian';
+            if (!state.editedProductData.other_versions) state.editedProductData.other_versions = {};
+            if (!state.editedProductData.other_versions[roKey]) state.editedProductData.other_versions[roKey] = {};
+            state.editedProductData.other_versions[roKey].description = newDescription;
+
+        } else { 
+            throw new Error('Răspuns invalid de la server.'); 
+        }
+    } catch (error) {
+        console.error('Eroare la generarea descrierii:', error);
+        alert(`A apărut o eroare la generarea descrierii: ${error.message}`);
+    } finally {
+        refreshIcon.classList.remove('hidden');
+        refreshSpinner.classList.add('hidden');
+        refreshBtn.disabled = false;
+    }
+}
+// --- SFÂRȘIT FUNCȚIE NOUĂ ---
+
 export async function handleTranslationInit(languageOption) {
     const langCode = languageOption.dataset.langCode;
     const asin = document.getElementById('product-asin').value;
@@ -500,4 +569,5 @@ export function handleDescriptionToggle(descModeButton) {
     });
     descModeButton.classList.add('bg-blue-600', 'text-white');
     descModeButton.classList.remove('hover:bg-gray-100');
+}
 }
