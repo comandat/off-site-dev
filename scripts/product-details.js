@@ -570,4 +570,3 @@ export function handleDescriptionToggle(descModeButton) {
     descModeButton.classList.add('bg-blue-600', 'text-white');
     descModeButton.classList.remove('hover:bg-gray-100');
 }
-}
