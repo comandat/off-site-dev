@@ -13,7 +13,8 @@ import {
     handleDescriptionToggle,
     saveCurrentTabData,
     saveProductCoreData,
-    handleImageTranslation
+    handleImageTranslation,
+    handleDescriptionRefresh // <-- MODIFICARE AICI
 } from './product-details.js';
 import { 
     handleExportPreliminar, 
@@ -241,6 +242,13 @@ document.addEventListener('DOMContentLoaded', async () => {
             if (action === 'refresh-ro-title') {
                 await handleTitleRefresh(actionButton);
             }
+            
+            // --- MODIFICARE AICI ---
+            if (action === 'refresh-ro-description') {
+                await handleDescriptionRefresh(actionButton);
+            }
+            // --- SFÂRȘIT MODIFICARE ---
+
             if (action === 'save-product') {
                 const success = await handleProductSave(actionButton);
                 if (success) {
