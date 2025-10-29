@@ -554,21 +554,29 @@ export const templates = {
                                 <div class="refresh-spinner hidden w-5 h-5 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
                             </button>
                         </div>
-                        <div>
-                            <div class="flex justify-between items-center mb-1">
-                                <label for="product-description-raw" class="text-sm font-medium text-gray-500">Descriere</label>
-                                <div class="flex items-center space-x-1 rounded-lg p-1 border">
-                                    <button data-action="toggle-description-mode" data-mode="raw" class="desc-mode-btn bg-blue-600 text-white rounded-md p-1.5">
-                                        <span class="material-icons text-base">code</span>
-                                    </button>
-                                    <button data-action="toggle-description-mode" data-mode="preview" class="desc-mode-btn hover:bg-gray-100 rounded-md p-1.5">
-                                        <span class="material-icons text-base">visibility</span>
-                                    </button>
+                        
+                        <div class="flex items-start space-x-2">
+                            <div class="flex-1">
+                                <div class="flex justify-between items-center mb-1">
+                                    <label for="product-description-raw" class="text-sm font-medium text-gray-500">Descriere</label>
+                                    <div class="flex items-center space-x-1 rounded-lg p-1 border">
+                                        <button data-action="toggle-description-mode" data-mode="raw" class="desc-mode-btn bg-blue-600 text-white rounded-md p-1.5">
+                                            <span class="material-icons text-base">code</span>
+                                        </button>
+                                        <button data-action="toggle-description-mode" data-mode="preview" class="desc-mode-btn hover:bg-gray-100 rounded-md p-1.5">
+                                            <span class="material-icons text-base">visibility</span>
+                                        </button>
+                                    </div>
                                 </div>
+                                <textarea id="product-description-raw" rows="12" class="mt-1 block w-full bg-gray-50 border rounded-lg p-3 font-mono">${details.description || ''}</textarea>
+                                <div id="product-description-preview" contenteditable="true" class="prose prose-sm max-w-none hidden mt-1 block w-full h-[278px] overflow-y-auto bg-gray-50 border rounded-lg p-3"></div>
                             </div>
-                            <textarea id="product-description-raw" rows="12" class="mt-1 block w-full bg-gray-50 border rounded-lg p-3 font-mono">${details.description || ''}</textarea>
-                            <div id="product-description-preview" contenteditable="true" class="prose prose-sm max-w-none hidden mt-1 block w-full h-[278px] overflow-y-auto bg-gray-50 border rounded-lg p-3"></div>
+                            <button id="refresh-description-btn" data-action="refresh-ro-description" class="hidden mt-6 p-2 text-blue-600 hover:bg-blue-100 rounded-full transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+                                <span class="material-icons refresh-icon">refresh</span>
+                                <div class="refresh-spinner hidden w-5 h-5 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+                            </button>
                         </div>
+                        
                     </div>
                 </div>
 
