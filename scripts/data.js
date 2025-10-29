@@ -46,7 +46,22 @@ function processServerData(data) {
             expected: p.orderedquantity || 0,
             found: (p.bncondition || 0) + (p.vgcondition || 0) + (p.gcondition || 0) + (p.broken || 0),
             manifestsku: p.manifestsku || null,
-            listingReady: p.listingready || false
+            listingReady: p.listingready || false,
+            
+            // --- MODIFICARE: Adăugat pentru funcția de export ---
+            bncondition: p.bncondition || 0,
+            vgcondition: p.vgcondition || 0,
+            gcondition: p.gcondition || 0,
+            broken: p.broken || 0,
+            
+            // --- MODIFICARE: Placeholder pentru datele care lipsesc momentan din webhook ---
+            // Aceste date sunt cerute de funcția de export, dar nu par a fi în 'p'
+            // Vor fi 'undefined' dacă nu vin de la server, ceea ce e ok.
+            stockcode: p.stockcode, 
+            unitweight: p.unitweight,
+            estimatedsalevaluewithvat: p.estimatedsalevaluewithvat,
+            verificationready: p.verificationready // Necesar pentru "Update Stoc Real"
+            // --- SFÂRȘIT MODIFICARE ---
         }))
     }));
 }
@@ -85,21 +100,9 @@ export async function fetchProductDetailsInBulk(asins) {
         const response = await fetch(PRODUCT_DETAILS_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ asins: asinsToFetch }) });
         if (!response.ok) throw new Error(`Eroare la preluarea detaliilor`);
         const responseData = await response.json();
-        const bulkData = responseData?.get_product_details_dynamically_test?.products || {};
-
-        // --- COD NOU PENTRU DEBUG (Adăugat la cererea dvs.) ---
-        console.log("Date brute primite de la webhook-ul de detalii:", bulkData);
-        // --- SFÂRȘIT COD NOU ---
-
+        const bulkData = responseData?.get_product_details_dynamically?.products || {};
         asinsToFetch.forEach(asin => {
-            
-            // --- MODIFICARE PENTRU DEBUG (Adăugat la cererea dvs.) ---
-            const productDataRaw = bulkData[asin];
-            console.log(`[Debug ASIN: ${asin}] Date primite:`, JSON.parse(JSON.stringify(productDataRaw)));
-            
-            const productData = productDataRaw || { title: 'N/A', images: [], description: '', features: {}, brand: '', price: '', category: '', categoryId: null, other_versions: {} };
-            // --- SFÂRȘIT MODIFICARE ---
-            
+            const productData = bulkData[asin] || { title: 'N/A', images: [], description: '', features: {}, brand: '', price: '', category: '', categoryId: null, other_versions: {} };
             AppState.setProductDetails(asin, productData);
             results[asin] = productData;
         });
