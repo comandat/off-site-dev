@@ -17,7 +17,12 @@ import {
     handleImageTranslation
 } from './product-details.js';
 // --- NOU ---
-import { handleExportPreliminar, handleExportStocReal } from './export.js';
+import { 
+    handleExportPreliminar, 
+    handleExportStocReal, 
+    convertToCSV, 
+    downloadCSV 
+} from './export.js';
 // --- SFÂRȘIT NOU ---
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -55,7 +60,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const commandCard = target.closest('[data-command-id]:not([data-action])');
         // --- SFÂRȘIT MODIFICARE ---
         const palletCard = target.closest('[data-manifest-sku]');
-        const productCard = target.closest('[data-product-id]');
+        const productCard = target.closest('[data-product-id]:not([data-action="go-to-product"])'); // Exclude noul link
         const actionButton = target.closest('[data-action]');
         const versionButton = target.closest('.version-btn');
         const languageOption = target.closest('.language-option');
@@ -122,6 +127,41 @@ document.addEventListener('DOMContentLoaded', () => {
         if (actionButton) {
             const action = actionButton.dataset.action;
 
+            // --- NOU: Navigare din lista de erori ---
+            if (action === 'go-to-product') {
+                event.preventDefault(); // Oprește link-ul
+                const commandId = actionButton.dataset.commandId;
+                const productId = actionButton.dataset.productId; // Acesta e uniqueId
+
+                if (!commandId || !productId) {
+                    alert('Eroare: ID-ul comenzii sau al produsului lipsește.');
+                    return;
+                }
+                
+                // Salvează starea curentă a exportului
+                state.currentView = 'exportDate';
+                
+                // Găsește produsul în AppState pentru a seta starea corect
+                const command = AppState.getCommands().find(c => c.id === commandId);
+                const product = command?.products.find(p => p.uniqueId === productId);
+
+                if (product) {
+                    state.currentCommandId = commandId;
+                    state.currentManifestSKU = product.manifestsku || 'No ManifestSKU';
+                    state.currentProductId = productId;
+                    
+                    // Schimbă view-ul
+                    await renderView('produs-detaliu', {
+                        commandId: state.currentCommandId,
+                        productId: state.currentProductId
+                    });
+                } else {
+                    alert('Eroare: Nu s-a putut găsi produsul pentru navigare.');
+                }
+                return; // Oprește execuția
+            }
+            // --- SFÂRȘIT NOU ---
+
             // Navigare "Back"
             if (action === 'back-to-comenzi') {
                 state.currentCommandId = null;
@@ -137,7 +177,13 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             if (action === 'back-to-produse') {
                 state.currentProductId = null;
-                await renderView('produse', { commandId: state.currentCommandId, manifestSKU: state.currentManifestSKU });
+                // --- MODIFICARE: Verifică dacă ne întoarcem din pagina de export
+                const lastView = state.currentView === 'exportDate' ? 'exportDate' : 'produse';
+                if (lastView === 'exportDate') {
+                    await renderView('exportDate');
+                } else {
+                    await renderView('produse', { commandId: state.currentCommandId, manifestSKU: state.currentManifestSKU });
+                }
             }
 
             // Acțiuni API "Ready to List"
@@ -210,7 +256,22 @@ document.addEventListener('DOMContentLoaded', () => {
             if (action === 'save-product') {
                 const success = await handleProductSave(actionButton);
                 if (success) {
-                    await renderView('produse', { commandId: state.currentCommandId, manifestSKU: state.currentManifestSKU });
+                    // --- MODIFICARE: Verifică dacă ne întoarcem la export sau la produse
+                    const lastView = state.currentView === 'exportDate' ? 'exportDate' : 'produse';
+                    if (lastView === 'exportDate') {
+                        await renderView('exportDate');
+                        // Simulează re-selectarea comenzii pentru a reîncărca acțiunile
+                        const select = document.getElementById('export-command-select');
+                        if (select && state.currentCommandId) {
+                            select.value = state.currentCommandId;
+                            select.dispatchEvent(new Event('change', { bubbles: true }));
+                            // Rulează automat generarea listei
+                            const prelimBtn = document.getElementById('export-preliminar-btn');
+                            if(prelimBtn) await handleExportPreliminar(state.currentCommandId, prelimBtn);
+                        }
+                    } else {
+                        await renderView('produse', { commandId: state.currentCommandId, manifestSKU: state.currentManifestSKU });
+                    }
                 }
             }
             
@@ -243,7 +304,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 handleImageActions(action, actionButton);
             }
 
-            // --- NOU: Acțiuni Export ---
+            // --- MODIFICAT: Acțiuni Export ---
             if (action === 'export-preliminar') {
                 const commandId = document.getElementById('export-command-select')?.value;
                 if (commandId) {
@@ -258,6 +319,16 @@ document.addEventListener('DOMContentLoaded', () => {
                     handleExportStocReal(commandId, actionButton);
                 } else {
                     alert('Vă rugăm selectați o comandă.');
+                }
+            }
+            // --- NOU: Descărcare ---
+            if (action === 'download-preliminar') {
+                if (state.lastExportData && state.lastExportData.length > 0) {
+                    const csvString = convertToCSV(state.lastExportData);
+                    const commandId = document.getElementById('export-command-select')?.value || 'export';
+                    downloadCSV(csvString, `export_preliminar_${commandId.substring(0, 8)}.csv`);
+                } else {
+                    alert("Eroare: Nu există date de descărcat. Generați mai întâi lista.");
                 }
             }
             // --- SFÂRȘIT NOU ---
@@ -329,7 +400,7 @@ document.addEventListener('DOMContentLoaded', () => {
             // Simulare date - acestea vor veni de la un API
             const simulatedData = {
                 id: commandId,
-                orderdate: "2025-10-28", // Simulat
+                orderdate: "2022-10-28", // Simulat
                 totalordercostwithoutvat: 1234.50, // Simulat
                 transportcost: 150, // Simulat
                 discount: 25, // Simulat
@@ -340,11 +411,16 @@ document.addEventListener('DOMContentLoaded', () => {
             detailsContainer.innerHTML = templates.financiarDetails(simulatedData);
         }
 
-        // --- NOU: Selector Comandă Export ---
+        // --- MODIFICAT: Selector Comandă Export ---
         if (event.target.id === 'export-command-select') {
             const commandId = event.target.value;
             const actionsContainer = document.getElementById('export-actions-container');
             const placeholder = document.getElementById('export-placeholder');
+            const previewContainer = document.getElementById('export-preview-container');
+
+            // Golește mereu previzualizarea la schimbarea comenzii
+            if (previewContainer) previewContainer.innerHTML = '';
+            state.lastExportData = null; // Resetează datele
 
             if (commandId) {
                 if (actionsContainer) actionsContainer.classList.remove('hidden');
@@ -354,7 +430,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (placeholder) placeholder.classList.remove('hidden');
             }
         }
-        // --- SFÂRȘIT NOU ---
+        // --- SFÂRȘIT MODIFICAT ---
     });
 
     // Listener pentru submit (doar formularul de import)
