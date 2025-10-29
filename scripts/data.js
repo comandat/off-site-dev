@@ -86,8 +86,20 @@ export async function fetchProductDetailsInBulk(asins) {
         if (!response.ok) throw new Error(`Eroare la preluarea detaliilor`);
         const responseData = await response.json();
         const bulkData = responseData?.get_product_details_dynamically?.products || {};
+
+        // --- COD NOU PENTRU DEBUG (Adăugat la cererea dvs.) ---
+        console.log("Date brute primite de la webhook-ul de detalii:", bulkData);
+        // --- SFÂRȘIT COD NOU ---
+
         asinsToFetch.forEach(asin => {
-            const productData = bulkData[asin] || { title: 'N/A', images: [], description: '', features: {}, brand: '', price: '', category: '', categoryId: null, other_versions: {} };
+            
+            // --- MODIFICARE PENTRU DEBUG (Adăugat la cererea dvs.) ---
+            const productDataRaw = bulkData[asin];
+            console.log(`[Debug ASIN: ${asin}] Date primite:`, JSON.parse(JSON.stringify(productDataRaw)));
+            
+            const productData = productDataRaw || { title: 'N/A', images: [], description: '', features: {}, brand: '', price: '', category: '', categoryId: null, other_versions: {} };
+            // --- SFÂRȘIT MODIFICARE ---
+            
             AppState.setProductDetails(asin, productData);
             results[asin] = productData;
         });
