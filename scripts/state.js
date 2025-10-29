@@ -12,5 +12,6 @@ export const state = {
     productScrollPosition: 0,
     currentSearchQuery: '',
     currentView: 'comenzi',
+    previousView: null,
     searchTimeout: null
 };
