@@ -16,6 +16,9 @@ import {
     saveProductCoreData,
     handleImageTranslation
 } from './product-details.js';
+// --- NOU ---
+import { handleExportPreliminar, handleExportStocReal } from './export.js';
+// --- SFÂRȘIT NOU ---
 
 document.addEventListener('DOMContentLoaded', () => {
     const mainContent = document.getElementById('main-content');
@@ -239,6 +242,25 @@ document.addEventListener('DOMContentLoaded', () => {
             if (['delete-image', 'add-image-url', 'copy-origin-images'].includes(action)) {
                 handleImageActions(action, actionButton);
             }
+
+            // --- NOU: Acțiuni Export ---
+            if (action === 'export-preliminar') {
+                const commandId = document.getElementById('export-command-select')?.value;
+                if (commandId) {
+                    await handleExportPreliminar(commandId, actionButton);
+                } else {
+                    alert('Vă rugăm selectați o comandă.');
+                }
+            }
+            if (action === 'export-stoc-real') {
+                const commandId = document.getElementById('export-command-select')?.value;
+                 if (commandId) {
+                    handleExportStocReal(commandId, actionButton);
+                } else {
+                    alert('Vă rugăm selectați o comandă.');
+                }
+            }
+            // --- SFÂRȘIT NOU ---
         }
     });
 
@@ -317,6 +339,22 @@ document.addEventListener('DOMContentLoaded', () => {
             
             detailsContainer.innerHTML = templates.financiarDetails(simulatedData);
         }
+
+        // --- NOU: Selector Comandă Export ---
+        if (event.target.id === 'export-command-select') {
+            const commandId = event.target.value;
+            const actionsContainer = document.getElementById('export-actions-container');
+            const placeholder = document.getElementById('export-placeholder');
+
+            if (commandId) {
+                if (actionsContainer) actionsContainer.classList.remove('hidden');
+                if (placeholder) placeholder.classList.add('hidden');
+            } else {
+                if (actionsContainer) actionsContainer.classList.add('hidden');
+                if (placeholder) placeholder.classList.remove('hidden');
+            }
+        }
+        // --- SFÂRȘIT NOU ---
     });
 
     // Listener pentru submit (doar formularul de import)
