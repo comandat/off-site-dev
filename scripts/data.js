@@ -100,7 +100,7 @@ export async function fetchProductDetailsInBulk(asins) {
         const response = await fetch(PRODUCT_DETAILS_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ asins: asinsToFetch }) });
         if (!response.ok) throw new Error(`Eroare la preluarea detaliilor`);
         const responseData = await response.json();
-        const bulkData = responseData?.get_product_details_dynamically?.products || {};
+        const bulkData = responseData?.get_product_details_dynamically_test?.products || {};
         asinsToFetch.forEach(asin => {
             const productData = bulkData[asin] || { title: 'N/A', images: [], description: '', features: {}, brand: '', price: '', category: '', categoryId: null, other_versions: {} };
             AppState.setProductDetails(asin, productData);
