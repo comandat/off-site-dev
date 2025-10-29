@@ -85,7 +85,7 @@ export async function fetchProductDetailsInBulk(asins) {
         const response = await fetch(PRODUCT_DETAILS_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ asins: asinsToFetch }) });
         if (!response.ok) throw new Error(`Eroare la preluarea detaliilor`);
         const responseData = await response.json();
-        const bulkData = responseData?.get_product_details_dynamically?.products || {};
+        const bulkData = responseData?.get_product_details_dynamically_test?.products || {};
 
         // --- COD NOU PENTRU DEBUG (Adăugat la cererea dvs.) ---
         console.log("Date brute primite de la webhook-ul de detalii:", bulkData);
