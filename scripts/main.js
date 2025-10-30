@@ -230,6 +230,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 actionButton.closest('.dropdown-menu')?.classList.add('hidden');
             }
 
+            // --- AICI ESTE CORECTURA ---
             if (action === 'edit-asin') {
                 event.preventDefault(); // Oprește acțiunea default
                 event.stopPropagation(); // Oprește propagarea click-ului
@@ -242,6 +243,8 @@ document.addEventListener('DOMContentLoaded', async () => {
                     });
                 }
             }
+            // --- SFÂRȘIT CORECTURĂ ---
+
             if (action === 'refresh-ro-title') {
                 await handleTitleRefresh(actionButton);
             }
