@@ -231,6 +231,9 @@ document.addEventListener('DOMContentLoaded', async () => {
             }
 
             if (action === 'edit-asin') {
+                event.preventDefault(); // Oprește acțiunea default
+                event.stopPropagation(); // Oprește propagarea click-ului
+                
                 const success = await handleAsinUpdate(actionButton);
                 if (success) {
                     await renderView('produs-detaliu', {
