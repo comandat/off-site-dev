@@ -109,7 +109,10 @@ export async function handleUploadSubmit(event) {
 export async function handleAsinUpdate(actionButton) {
     const productsku = actionButton.dataset.productsku;
     const oldAsin = actionButton.dataset.oldAsin;
-    const orderId = document.querySelector('[data-action="ready-to-list-single"]').dataset.orderId; // Ia orderId din alt buton
+    // --- MODIFICARE: Citim direct de pe buton ---
+    const orderId = actionButton.dataset.orderId;
+    const manifestSku = actionButton.dataset.manifestSku;
+    // --- SFÂRȘIT MODIFICARE ---
 
     const newAsin = prompt("Introduceți noul ASIN:", oldAsin);
 
@@ -127,7 +130,8 @@ export async function handleAsinUpdate(actionButton) {
         productsku: productsku,
         asin_vechi: oldAsin,
         asin_nou: newAsin.trim(),
-        orderId: orderId
+        orderId: orderId,
+        manifestsku: manifestSku // <-- MODIFICARE: Adăugat manifestsku
     };
 
     try {
