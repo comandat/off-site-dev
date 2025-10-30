@@ -541,8 +541,7 @@ export const templates = {
                                 </button>
                             </div>
                         </div>
-
-                    </div>
+                        </div>
                 </div>
 
                 <div class="lg:col-span-2 bg-white rounded-xl shadow-sm">
