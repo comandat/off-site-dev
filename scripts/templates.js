@@ -530,10 +530,14 @@ export const templates = {
                         <div>
                             <div class="flex justify-between items-center">
                                 <label for="product-asin" class="text-sm font-medium text-gray-500">ASIN</label>
-                                <button data-action="edit-asin" data-productsku="${product.id}" data-old-asin="${product.asin}"
-                                        class="px-3 py-1 text-xs font-semibold text-blue-600 bg-blue-100 rounded-full hover:bg-blue-200 transition-colors">
-                                    Editează ASIN
-                                </button>
+        <button data-action="edit-asin" 
+        data-productsku="${product.id}" 
+        data-old-asin="${product.asin}"
+        data-order-id="${commandId}"
+        data-manifest-sku="${product.manifestsku || ''}"
+        class="px-3 py-1 text-xs font-semibold text-blue-600 bg-blue-100 rounded-full hover:bg-blue-200 transition-colors">
+        Editează ASIN
+        </button>
                             </div>
                             <input id="product-asin" class="mt-1 block w-full bg-gray-100 p-2 border-0 rounded-md text-gray-700" type="text" value="${product.asin}" readonly>
                         </div>
