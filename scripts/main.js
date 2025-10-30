@@ -44,7 +44,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         const target = event.target;
         
         const commandCard = target.closest('[data-command-id]:not([data-action])');
-        const palletCard = target.closest('[data-manifest-sku]');
+        const palletCard = target.closest('[data-manifest-sku]:not([data-action])');
         const productCard = target.closest('[data-product-id]:not([data-action="go-to-product"])');
         const actionButton = target.closest('[data-action]');
         const versionButton = target.closest('.version-btn');
