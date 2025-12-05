@@ -144,11 +144,9 @@ export const templates = {
             const details = detailsMap[p.asin] || {};
             const roData = details.other_versions?.['romanian'] || {};
             
-            // --- MODIFICARE AICI: Eliminat fallback-ul "|| details.title" ---
-            // Acum, dacă nu există titlu în RO, variabila rămâne goală, 
-            // ceea ce va declanșa eroarea mai jos.
+            // --- STRICT RO TITLE CHECK ---
             const title = (roData.title || '').trim();
-            // -------------------------------------------------------------
+            // -----------------------------
             
             const mainImage = (roData.images && roData.images[0]) ? roData.images[0] : ((details.images && details.images[0]) ? details.images[0] : '');
             const price = parseFloat(details.price) || 0;
@@ -157,14 +155,14 @@ export const templates = {
             const errors = [];
             if (!manifestSku) errors.push("Lipsește ManifestSKU");
             
-            // Verificarea include acum cazul când title este gol (deoarece am scos fallback-ul)
+            // Verificăm dacă titlul RO lipsește (fără fallback)
             if (!title || title === "N/A" || title.length < 10) errors.push("Titlu RO lipsă sau invalid");
             
             if (price <= 0) errors.push("Preț estimat <= 0");
 
             return {
                 ...p,
-                displayTitle: title || 'N/A', // Dacă e gol, afișează N/A
+                displayTitle: title || 'N/A',
                 displayImage: mainImage,
                 displayPrice: price,
                 displayQty: receivedQty,
@@ -183,6 +181,7 @@ export const templates = {
         const rowsHTML = processedProducts.map(p => {
             const rowClass = p.hasErrors ? 'bg-red-50 hover:bg-red-100 border-l-4 border-red-500' : 'hover:bg-gray-50';
             
+            // --- CUSTOM CSS TOOLTIP ---
             let warningIcon = '';
             if (p.hasErrors) {
                 const errorMsg = p.errors.join(', ');
@@ -195,6 +194,7 @@ export const templates = {
                     </div>
                 `;
             }
+            // --------------------------
 
             const colManifest = `
                 <td class="px-4 py-4 whitespace-nowrap text-sm text-gray-900 font-medium">
@@ -214,6 +214,7 @@ export const templates = {
                     </button>
                 </td>`;
 
+            // --- SECURE PLACEHOLDER ---
             const colImage = `
                 <td class="px-4 py-4 whitespace-nowrap">
                     <div class="h-16 w-16 flex-shrink-0">
@@ -532,7 +533,66 @@ export const templates = {
         <div class="p-4 space-y-2">${noResultsHTML}</div>`;
     },
 
+    competition: (competitionData) => {
+        let cardsHTML = '';
+        for (let i = 1; i <= 5; i++) {
+            const name = competitionData[`productname_${i}`];
+            if (!name) break;
+
+            const image = competitionData[`productimage_${i}`] || '';
+            const url = competitionData[`producturl_${i}`] || '#';
+            const rating = competitionData[`rating_${i}`];
+            const reviews = competitionData[`reviewscount_${i}`] || '';
+            const oldPrice = competitionData[`oldprice_${i}`];
+            const currentPrice = competitionData[`currentprice_${i}`] || '';
+            const promoLabel = competitionData[`promotionlabel_${i}`];
+            const dealLabel = competitionData[`dealtype_${i}`];
+
+            let labelHTML = '';
+            const labelText = promoLabel || dealLabel;
+            if (labelText) {
+                labelHTML = `<span class="absolute top-2 left-2 bg-blue-500 text-white text-xs font-bold px-2 py-1 rounded">${labelText}</span>`;
+            }
+
+            let priceHTML = '';
+            if (oldPrice) {
+                priceHTML += `<p class="text-sm text-gray-500 line-through">${oldPrice}</p>`;
+            }
+            priceHTML += `<p class="text-xl font-bold text-red-600">${currentPrice}</p>`;
+
+            cardsHTML += `
+                <div class="w-full max-w-xs bg-white rounded-lg shadow-md overflow-hidden flex flex-col">
+                    <div class="relative w-full h-48">
+                        <img src="${image}" alt="${name}" class="w-full h-full object-contain p-2">
+                        ${labelHTML}
+                    </div>
+                    <div class="p-4 flex-1 flex flex-col justify-between">
+                        <div>
+                            <div class="flex items-center space-x-1 mb-1">
+                                ${renderCompetitionStars(rating)}
+                                <span class="text-sm text-gray-500">${reviews}</span>
+                            </div>
+                            <h3 data-competition-title="${i}" class="font-semibold text-gray-800 text-sm h-20 overflow-hidden line-clamp-3">${name}</h3>
+                        </div>
+                        <div>
+                            <div class="mt-2 mb-3">
+                                ${priceHTML}
+                            </div>
+                            <a href="${url}" target="_blank" rel="noopener noreferrer"
+                               class="block w-full text-center px-4 py-2 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-700 transition-colors">
+                               Vezi Produsul
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        return `<div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">${cardsHTML}</div>`;
+    },
+
     produsDetaliu: (product, details, commandId) => {
+        // --- FILTRARE BUTOANE TRADUCERE ---
         const otherVersions = details.other_versions || {};
         const existingLanguages = Object.keys(otherVersions).map(k => k.toLowerCase());
 
@@ -543,6 +603,7 @@ export const templates = {
             .map(([code, name]) =>
                 `<a href="#" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 language-option" data-lang-code="${code}">${code.toUpperCase()}</a>`
             ).join('');
+        // -----------------------------------
 
         const versionsButtons = Object.keys(otherVersions).map(key => {
             const displayText = languageNameToCodeMap[key.toLowerCase()] || key.toUpperCase();
