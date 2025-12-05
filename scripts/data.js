@@ -25,11 +25,8 @@ export const AppState = {
         }
     },
 
-    // --- NOU: Management Date Financiare ---
-    // Stocăm datele financiare în sessionStorage pentru persistență între refresh-uri
     getFinancialData: () => JSON.parse(sessionStorage.getItem('financialData') || '[]'),
     setFinancialData: (data) => sessionStorage.setItem('financialData', JSON.stringify(data)),
-    // --- SFÂRȘIT NOU ---
 };
 
 function processServerData(data) {
@@ -45,8 +42,6 @@ function processServerData(data) {
             found: (p.bncondition || 0) + (p.vgcondition || 0) + (p.gcondition || 0) + (p.broken || 0),
             manifestsku: p.manifestsku || null,
             listingReady: p.listingready || false,
-            
-            // Date necesare pentru export și financiar
             bncondition: p.bncondition || 0,
             vgcondition: p.vgcondition || 0,
             gcondition: p.gcondition || 0,
@@ -98,10 +93,8 @@ export async function fetchProductDetailsInBulk(asins) {
 
 export async function saveProductDetails(asin, updatedData) {
     function makeQueryFriendly(str) { return str ? str.replace(/'/g, " ") : str; }
-
     const processedData = JSON.parse(JSON.stringify(updatedData));
     if (!processedData.features || typeof processedData.features !== 'object') processedData.features = {};
-
     if (processedData.other_versions) {
         for (const langCode in processedData.other_versions) {
             const version = processedData.other_versions[langCode];
@@ -110,10 +103,8 @@ export async function saveProductDetails(asin, updatedData) {
             }
         }
     }
-
     if (processedData.title) processedData.title = makeQueryFriendly(processedData.title);
     if (processedData.description) processedData.description = makeQueryFriendly(processedData.description);
-
     if (processedData.other_versions) {
         for (const langCode in processedData.other_versions) {
             const version = processedData.other_versions[langCode];
@@ -121,28 +112,17 @@ export async function saveProductDetails(asin, updatedData) {
             if (version && version.description) version.description = makeQueryFriendly(version.description);
         }
     }
-
     const payload = { asin, updatedData: processedData };
-
     try {
         const response = await fetch(PRODUCT_UPDATE_URL, {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
+            method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
         });
-        if (!response.ok) {
-            console.error(`Salvarea a eșuat:`, await response.text());
-            return false;
-        }
+        if (!response.ok) { console.error(`Salvarea a eșuat:`, await response.text()); return false; }
         AppState.setProductDetails(asin, updatedData);
         return true;
-    } catch (error) {
-        console.error('Eroare de rețea la salvare:', error);
-        return false;
-    }
+    } catch (error) { console.error('Eroare de rețea la salvare:', error); return false; }
 }
 
-// --- NOU: Funcție pentru preluarea datelor financiare ---
 export async function fetchFinancialData() {
     try {
         const response = await fetch(GET_FINANCIAL_WEBHOOK_URL, {
@@ -154,12 +134,16 @@ export async function fetchFinancialData() {
 
         const data = await response.json();
         
+        // --- CORECTIE PENTRU OBIECT UNIC vs ARRAY ---
         if (Array.isArray(data)) {
-            // Salvăm datele primite în AppState
             AppState.setFinancialData(data);
             return true;
+        } else if (data && typeof data === 'object' && (data.orderid || Object.keys(data).length > 0)) {
+            console.warn("API-ul a returnat un singur obiect. Îl convertim în listă.");
+            AppState.setFinancialData([data]);
+            return true;
         } else {
-            console.error("Format date financiare invalid (așteptat array):", data);
+            console.error("Format date financiare invalid:", data);
             return false;
         }
     } catch (error) {
