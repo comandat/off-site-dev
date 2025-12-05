@@ -1,5 +1,5 @@
 // scripts/viewRenderer.js
-import { AppState, fetchDataAndSyncState, fetchProductDetailsInBulk } from './data.js';
+import { AppState, fetchDataAndSyncState, fetchProductDetailsInBulk, fetchFinancialData } from './data.js'; // Am adaugat fetchFinancialData
 import { state } from './state.js';
 import { fuzzySearch } from './utils.js';
 import { templates, renderImageGallery, initializeSortable } from './templates.js';
@@ -18,12 +18,10 @@ export function setActiveView(viewId) {
 
 export async function renderView(viewId, context = {}) {
     
-    // --- MODIFICARE ---
-    // Stochează vederea anterioară înainte de a o suprascrie
+    // Stochează vederea anterioară
     if (viewId !== state.currentView) {
         state.previousView = state.currentView;
     }
-    // --- SFÂRȘIT MODIFICARE ---
 
     state.currentView = viewId;
     let html = '';
@@ -41,9 +39,22 @@ export async function renderView(viewId, context = {}) {
                 html = templates.import();
                 break;
             case 'financiar':
+                // 1. Sincronizăm lista de comenzi
                 await fetchDataAndSyncState();
+                
+                // 2. Verificăm dacă avem datele financiare în cache (SessionStorage)
+                const storedFinancialData = AppState.getFinancialData();
+                
+                // Dacă nu avem date (lungime 0), le luăm de la server (doar prima dată pe sesiune)
+                if (!storedFinancialData || storedFinancialData.length === 0) {
+                    mainContent.innerHTML = `<div class="p-8 text-center text-gray-500">Se preiau datele financiare...</div>`;
+                    await fetchFinancialData();
+                }
+
+                // 3. Randăm pagina (dropdown-ul va fi populat cu comenzile)
                 html = templates.financiar(AppState.getCommands());
                 break;
+
             case 'exportDate':
                 await fetchDataAndSyncState(); 
                 html = templates.exportDate(AppState.getCommands());
