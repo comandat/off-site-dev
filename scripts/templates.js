@@ -174,7 +174,6 @@ export const templates = {
         const rowsHTML = processedProducts.map(p => {
             const rowClass = p.hasErrors ? 'bg-red-50 hover:bg-red-100 border-l-4 border-red-500' : 'hover:bg-gray-50';
             
-            // --- MODIFICARE: Tooltip CSS personalizat ---
             let warningIcon = '';
             if (p.hasErrors) {
                 const errorMsg = p.errors.join(', ');
@@ -187,7 +186,6 @@ export const templates = {
                     </div>
                 `;
             }
-            // --- SFÂRȘIT MODIFICARE ---
 
             const colManifest = `
                 <td class="px-4 py-4 whitespace-nowrap text-sm text-gray-900 font-medium">
@@ -207,7 +205,6 @@ export const templates = {
                     </button>
                 </td>`;
 
-            // Folosim placeholder sigur pentru a evita erori de Mixed Content
             const colImage = `
                 <td class="px-4 py-4 whitespace-nowrap">
                     <div class="h-16 w-16 flex-shrink-0">
@@ -585,11 +582,19 @@ export const templates = {
     },
 
     produsDetaliu: (product, details, commandId) => {
-        const languageButtons = Object.entries(languages).map(([code, name]) =>
-            `<a href="#" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 language-option" data-lang-code="${code}">${code.toUpperCase()}</a>`
-        ).join('');
-
+        // --- MODIFICARE AICI ---
         const otherVersions = details.other_versions || {};
+        const existingLanguages = Object.keys(otherVersions).map(k => k.toLowerCase());
+
+        const languageButtons = Object.entries(languages)
+            .filter(([code, name]) => {
+                // Filtrăm limbile care sunt deja în 'other_versions'
+                return !existingLanguages.includes(name.toLowerCase());
+            })
+            .map(([code, name]) =>
+                `<a href="#" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 language-option" data-lang-code="${code}">${code.toUpperCase()}</a>`
+            ).join('');
+        // --- SFÂRȘIT MODIFICARE ---
 
         const versionsButtons = Object.keys(otherVersions).map(key => {
             const displayText = languageNameToCodeMap[key.toLowerCase()] || key.toUpperCase();
