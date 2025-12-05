@@ -376,7 +376,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             }, 300);
         }
 
-        // --- NOU: CALCUL AUTOMAT TVA 21% ---
+        // --- CALCUL AUTOMAT TVA 21% ---
         else if (event.target.id === 'financiar-total-fara-tva') {
             const totalFaraTVA = parseFloat(event.target.value) || 0;
             const totalCuTVA = totalFaraTVA * 1.21; // 21%
@@ -386,7 +386,6 @@ document.addEventListener('DOMContentLoaded', async () => {
                 tvaField.value = totalCuTVA.toFixed(2);
             }
         }
-        // --- SFÂRȘIT NOU ---
     });
 
     mainContent.addEventListener('change', async (event) => {
