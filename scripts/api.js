@@ -1,207 +1,169 @@
-// scripts/api.js
-import { 
-    N8N_UPLOAD_WEBHOOK_URL, 
-    READY_TO_LIST_WEBHOOK_URL, 
-    ASIN_UPDATE_WEBHOOK_URL,
-    SAVE_FINANCIAL_WEBHOOK_URL 
-} from './constants.js';
-import { fetchDataAndSyncState, AppState } from './data.js';
+// scripts/data.js
+import { GET_FINANCIAL_WEBHOOK_URL } from './constants.js';
 
-/**
- * Trimite starea "Gata de listat" pentru un produs sau o comandă întreagă.
- */
-export async function sendReadyToList(payload, buttonElement) {
-    if (!payload) {
-        alert('Nu există date de trimis.');
-        return false;
-    }
+// --- CONFIGURARE WEBHOOKS ---
+const DATA_FETCH_URL = 'https://automatizare.comandat.ro/webhook/5a447557-8d52-463e-8a26-5902ccee8177';
+const PRODUCT_DETAILS_URL = 'https://automatizare.comandat.ro/webhook/39e78a55-36c9-4948-aa2d-d9301c996562-test';
+const PRODUCT_UPDATE_URL = 'https://automatizare.comandat.ro/webhook/eecb8515-6092-47b0-af12-f10fb23407fa';
 
-    let originalHTML = '';
-    let targetElement = buttonElement;
+// Cache in-memorie pentru detalii produse
+const productCache = {};
 
-    if (buttonElement && buttonElement.tagName === 'A') {
-        targetElement = buttonElement.querySelector('span:last-child');
-    }
+// --- MANAGEMENT STARE APLICAȚIE ---
+export const AppState = {
+    getCommands: () => JSON.parse(sessionStorage.getItem('liveCommandsData') || '[]'),
+    setCommands: (commands) => sessionStorage.setItem('liveCommandsData', JSON.stringify(commands)),
 
-    if (targetElement) {
-        originalHTML = targetElement.innerHTML;
-        if (buttonElement) buttonElement.style.pointerEvents = 'none';
-        targetElement.innerHTML = '<div class="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin mx-auto"></div>';
-    }
-
-    try {
-        console.log("Sending payload to ready-to-list webhook:", payload);
-        const response = await fetch(READY_TO_LIST_WEBHOOK_URL, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
-        });
-
-        if (!response.ok) {
-             const errorText = await response.text();
-             console.error("Webhook Error Response:", errorText);
-             throw new Error(`Eroare HTTP: ${response.status}. ${errorText}`);
+    getProductDetails: (asin) => productCache[asin] || null,
+    setProductDetails: (asin, data) => {
+        productCache[asin] = data;
+    },
+    clearProductCache: (asin) => {
+        if (asin && productCache[asin]) {
+            delete productCache[asin];
+            console.log(`Cache invalidat pentru ASIN: ${asin}`);
         }
+    },
 
-        await response.json();
-        await fetchDataAndSyncState(); 
-        return true;
+    // --- NOU: Management Date Financiare ---
+    // Stocăm datele financiare în sessionStorage pentru persistență între refresh-uri
+    getFinancialData: () => JSON.parse(sessionStorage.getItem('financialData') || '[]'),
+    setFinancialData: (data) => sessionStorage.setItem('financialData', JSON.stringify(data)),
+    // --- SFÂRȘIT NOU ---
+};
 
-    } catch (error) {
-        console.error('Eroare la trimiterea "Marchează/Anulează Marcaj Gata":', error);
-        alert(`A apărut o eroare: ${error.message}`);
-         if (targetElement) targetElement.innerHTML = originalHTML; 
-        return false;
-    } finally {
-         if (buttonElement) buttonElement.style.pointerEvents = 'auto'; 
-    }
+function processServerData(data) {
+    if (!data) return [];
+    return Object.keys(data).map(commandId => ({
+        id: commandId,
+        name: `Comanda #${commandId.substring(0, 12)}`,
+        products: (data[commandId] || []).map(p => ({
+            id: p.productsku,
+            uniqueId: `${p.productsku}::${p.manifestsku || 'N/A'}`,
+            asin: p.asin,
+            expected: p.orderedquantity || 0,
+            found: (p.bncondition || 0) + (p.vgcondition || 0) + (p.gcondition || 0) + (p.broken || 0),
+            manifestsku: p.manifestsku || null,
+            listingReady: p.listingready || false,
+            
+            // Date necesare pentru export și financiar
+            bncondition: p.bncondition || 0,
+            vgcondition: p.vgcondition || 0,
+            gcondition: p.gcondition || 0,
+            broken: p.broken || 0,
+            stockcode: p.stockcode, 
+            unitweight: p.unitweight,
+            estimatedsalevaluewithvat: p.estimatedsalevaluewithvat,
+            verificationready: p.verificationready
+        }))
+    }));
 }
 
-/**
- * Gestionează submiterea formularului de upload.
- */
-export async function handleUploadSubmit(event) {
-    event.preventDefault();
-    const uploadBtn = document.getElementById('upload-button');
-    const btnText = uploadBtn.querySelector('.button-text');
-    const btnLoader = uploadBtn.querySelector('.button-loader');
-    const statusEl = document.getElementById('upload-status');
-    const formData = new FormData(event.target);
-
-    if (!formData.get('zipFile')?.size || !formData.get('pdfFile')?.size) { 
-        statusEl.textContent = 'Selectează ambele fișiere.'; 
-        statusEl.className = 'text-red-600'; 
-        return false; 
-    }
-    
-    uploadBtn.disabled = true; 
-    btnText.classList.add('hidden'); 
-    btnLoader.classList.remove('hidden'); 
-    statusEl.textContent = 'Se trimit fișierele...'; 
-    statusEl.className = '';
-    
+export async function fetchDataAndSyncState() {
+    const accessCode = sessionStorage.getItem('lastAccessCode');
+    if (!accessCode) return false;
     try {
-        const response = await fetch(N8N_UPLOAD_WEBHOOK_URL, { method: 'POST', body: formData });
-        if (!response.ok) throw new Error(`Eroare HTTP: ${response.status}`);
+        const response = await fetch(DATA_FETCH_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: JSON.stringify({ code: accessCode }), cache: 'no-store' });
+        if (!response.ok) throw new Error(`Eroare de rețea: ${response.status}`);
         
-        const resData = await response.json();
-        if (resData.status === 'success') { 
-            statusEl.textContent = 'Comanda a fost importată!'; 
-            statusEl.className = 'text-green-600'; 
-            event.target.reset(); 
-            return true; 
-        } else {
-            throw new Error('Eroare server.');
-        }
-    } catch (error) { 
-        statusEl.textContent = 'A apărut o eroare.'; 
-        statusEl.className = 'text-red-600'; 
-        return false; 
-    } finally { 
-        uploadBtn.disabled = false; 
-        btnText.classList.remove('hidden'); 
-        btnLoader.classList.add('hidden'); 
-    }
+        const responseData = await response.json();
+        if (responseData.status !== 'success' || !responseData.data) throw new Error('Răspuns invalid de la server');
+        
+        const processedData = processServerData(responseData.data);
+        AppState.setCommands(processedData);
+        return true;
+    } catch (error) { console.error('Sincronizarea datelor a eșuat:', error); return false; }
 }
 
-/**
- * Gestionează actualizarea ASIN-ului.
- */
-export async function handleAsinUpdate(actionButton) {
-    const productsku = actionButton.dataset.productsku;
-    const oldAsin = actionButton.dataset.oldAsin;
-    const orderId = actionButton.dataset.orderId;
-    const manifestSku = actionButton.dataset.manifestSku;
+export async function fetchProductDetailsInBulk(asins) {
+    const results = {}, asinsToFetch = [];
+    asins.forEach(asin => { const cachedData = AppState.getProductDetails(asin); if (cachedData) results[asin] = cachedData; else asinsToFetch.push(asin); });
+    if (asinsToFetch.length === 0) return results;
+    try {
+        const response = await fetch(PRODUCT_DETAILS_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ asins: asinsToFetch }) });
+        if (!response.ok) throw new Error(`Eroare la preluarea detaliilor`);
+        const responseData = await response.json();
+        const bulkData = responseData?.get_product_details_dynamically_test?.products || {};
+        asinsToFetch.forEach(asin => {
+            const productData = bulkData[asin] || { title: 'N/A', images: [], description: '', features: {}, brand: '', price: '', category: '', categoryId: null, other_versions: {} };
+            AppState.setProductDetails(asin, productData);
+            results[asin] = productData;
+        });
+    } catch (error) {
+        console.error('Eroare la preluarea detaliilor produselor:', error);
+        asinsToFetch.forEach(asin => { results[asin] = { title: 'Eroare', images: [], description: '', features: {}, brand: '', price: '', category: '', categoryId: null, other_versions: {} }; });
+    }
+    return results;
+}
 
-    const newAsin = prompt("Introduceți noul ASIN:", oldAsin);
+export async function saveProductDetails(asin, updatedData) {
+    function makeQueryFriendly(str) { return str ? str.replace(/'/g, " ") : str; }
 
-    if (!newAsin || newAsin.trim() === '' || newAsin.trim() === oldAsin) {
-        return false;
+    const processedData = JSON.parse(JSON.stringify(updatedData));
+    if (!processedData.features || typeof processedData.features !== 'object') processedData.features = {};
+
+    if (processedData.other_versions) {
+        for (const langCode in processedData.other_versions) {
+            const version = processedData.other_versions[langCode];
+            if (version && typeof version === 'object') {
+                if (!version.features || typeof version.features !== 'object') version.features = {};
+            }
+        }
     }
 
-    const confirmation = confirm("Atenție!\n\nSchimbarea ASIN-ului va reîncărca datele acestui produs și poate modifica titlul, pozele sau descrierea. Datele nesalvate se vor pierde.\n\nSigur doriți să continuați?");
+    if (processedData.title) processedData.title = makeQueryFriendly(processedData.title);
+    if (processedData.description) processedData.description = makeQueryFriendly(processedData.description);
 
-    if (!confirmation) {
-        return false;
+    if (processedData.other_versions) {
+        for (const langCode in processedData.other_versions) {
+            const version = processedData.other_versions[langCode];
+            if (version && version.title) version.title = makeQueryFriendly(version.title);
+            if (version && version.description) version.description = makeQueryFriendly(version.description);
+        }
     }
 
-    const payload = {
-        productsku: productsku,
-        asin_vechi: oldAsin,
-        asin_nou: newAsin.trim(),
-        orderId: orderId,
-        manifestsku: manifestSku 
-    };
+    const payload = { asin, updatedData: processedData };
 
     try {
-        const response = await fetch(ASIN_UPDATE_WEBHOOK_URL, {
-            method: 'POST',
+        const response = await fetch(PRODUCT_UPDATE_URL, {
+            method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload)
         });
-
         if (!response.ok) {
-            throw new Error(`Eroare HTTP: ${response.status}`);
+            console.error(`Salvarea a eșuat:`, await response.text());
+            return false;
         }
+        AppState.setProductDetails(asin, updatedData);
+        return true;
+    } catch (error) {
+        console.error('Eroare de rețea la salvare:', error);
+        return false;
+    }
+}
 
-        const result = await response.json();
-        if (result.status === 'success') {
-            alert("ASIN-ul a fost actualizat cu succes! Se reîncarcă datele...");
-            await fetchDataAndSyncState(); 
-            return true; 
+// --- NOU: Funcție pentru preluarea datelor financiare ---
+export async function fetchFinancialData() {
+    try {
+        const response = await fetch(GET_FINANCIAL_WEBHOOK_URL, {
+            method: 'GET',
+            headers: { 'Content-Type': 'application/json' }
+        });
+
+        if (!response.ok) throw new Error(`Eroare HTTP: ${response.status}`);
+
+        const data = await response.json();
+        
+        if (Array.isArray(data)) {
+            // Salvăm datele primite în AppState
+            AppState.setFinancialData(data);
+            return true;
         } else {
-            alert(`Eroare la actualizare: ${result.message || 'Răspuns invalid de la server.'}`);
+            console.error("Format date financiare invalid (așteptat array):", data);
             return false;
         }
     } catch (error) {
-        console.error('Eroare la actualizarea ASIN-ului:', error);
-        alert(`A apărut o eroare de rețea: ${error.message}`);
+        console.error('Eroare la preluarea datelor financiare:', error);
         return false;
-    }
-}
-
-// --- NOU: Salvare Date Financiare ---
-export async function saveFinancialDetails(payload, buttonElement) {
-    const originalHTML = buttonElement.innerHTML;
-    buttonElement.disabled = true;
-    buttonElement.innerHTML = '<div class="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin mx-auto"></div>';
-
-    try {
-        // Folosim POST conform discuției
-        const response = await fetch(SAVE_FINANCIAL_WEBHOOK_URL, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
-        });
-
-        if (!response.ok) {
-            const errorText = await response.text();
-            throw new Error(`Eroare HTTP: ${response.status}. ${errorText}`);
-        }
-
-        // După salvare reușită, actualizăm AppState LOCAL pentru a reflecta modificările
-        // fără a face un nou request GET.
-        const currentData = AppState.getFinancialData();
-        const updatedData = currentData.map(item => {
-            if (item.orderid === payload.orderid) {
-                // Îmbinăm datele existente cu cele noi salvate
-                return { ...item, ...payload };
-            }
-            return item;
-        });
-        
-        // Salvăm în cache-ul local (SessionStorage prin AppState)
-        AppState.setFinancialData(updatedData);
-
-        alert('Datele financiare au fost salvate cu succes!');
-        return true;
-
-    } catch (error) {
-        console.error('Eroare la salvarea datelor financiare:', error);
-        alert(`Eroare la salvare: ${error.message}`);
-        return false;
-    } finally {
-        buttonElement.disabled = false;
-        buttonElement.innerHTML = originalHTML;
     }
 }
