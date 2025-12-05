@@ -1,8 +1,8 @@
 import { state } from './state.js';
 import { renderView } from './viewRenderer.js';
 import { initGlobalListeners } from './lightbox.js';
-import { sendReadyToList, handleUploadSubmit, handleAsinUpdate, saveFinancialDetails } from './api.js'; // Am adaugat saveFinancialDetails
-import { AppState, fetchDataAndSyncState, fetchProductDetailsInBulk } from './data.js'; // Am adaugat fetchProductDetailsInBulk
+import { sendReadyToList, handleUploadSubmit, handleAsinUpdate, saveFinancialDetails } from './api.js'; 
+import { AppState, fetchDataAndSyncState, fetchProductDetailsInBulk } from './data.js';
 import { templates } from './templates.js';
 import { 
     loadTabData, 
@@ -117,8 +117,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                     return;
                 }
                 
-                // Setăm view-ul anterior explicit pentru a putea reveni la 'financiar'
-                state.previousView = state.currentView; // Ar trebui să fie 'financiar'
+                state.previousView = state.currentView; 
                 
                 const command = AppState.getCommands().find(c => c.id === commandId);
                 const product = command?.products.find(p => p.uniqueId === productId);
@@ -138,7 +137,6 @@ document.addEventListener('DOMContentLoaded', async () => {
                 return; 
             }
             
-            // --- SAVE FINANCIAR ---
             if (action === 'save-financial') {
                 const orderId = document.getElementById('financiar-order-id').value;
                 const totalNoVat = document.getElementById('financiar-total-fara-tva').value;
@@ -148,7 +146,6 @@ document.addEventListener('DOMContentLoaded', async () => {
                 const currency = document.getElementById('financiar-moneda').value;
                 const rate = document.getElementById('financiar-rata-schimb').value;
 
-                // Construim payload-ul exact cum a venit de la GET, dar cu valorile noi
                 const payload = {
                     orderid: orderId,
                     totalordercostwithoutvat: totalNoVat,
@@ -157,7 +154,6 @@ document.addEventListener('DOMContentLoaded', async () => {
                     discount: discount,
                     currency: currency,
                     exchangerate: rate,
-                    // Data nu este editabilă, deci nu o trimitem neapărat, sau o luăm din state dacă e nevoie
                 };
 
                 await saveFinancialDetails(payload, actionButton);
@@ -178,10 +174,8 @@ document.addEventListener('DOMContentLoaded', async () => {
             if (action === 'back-to-produse') {
                 state.currentProductId = null;
                 
-                // Verificăm pagina ANTERIOARĂ pentru a reveni corect
                 if (state.previousView === 'exportDate') {
                     await renderView('exportDate');
-                    // Restaurăm starea dropdown-ului export
                     const select = document.getElementById('export-command-select');
                     if (select && state.currentCommandId) { 
                         select.value = state.currentCommandId;
@@ -194,7 +188,6 @@ document.addEventListener('DOMContentLoaded', async () => {
                         }
                     }
                 } else if (state.previousView === 'financiar') {
-                    // Revenim la pagina financiar și restaurăm selecția
                     await renderView('financiar');
                     const select = document.getElementById('financiar-command-select');
                     if (select && state.currentCommandId) {
@@ -278,10 +271,8 @@ document.addEventListener('DOMContentLoaded', async () => {
             if (action === 'save-product') {
                 const success = await handleProductSave(actionButton);
                 if (success) {
-                    // Logică de revenire inteligentă
                     if (state.previousView === 'exportDate') {
                          await renderView('exportDate');
-                         // ... logică restaurare export (identic ca mai sus)
                          const select = document.getElementById('export-command-select');
                          if (select && state.currentCommandId) {
                             select.value = state.currentCommandId;
@@ -293,7 +284,6 @@ document.addEventListener('DOMContentLoaded', async () => {
                             }
                         }
                     } else if (state.previousView === 'financiar') {
-                        // Revenire în pagina financiar
                         await renderView('financiar');
                         const select = document.getElementById('financiar-command-select');
                         if (select && state.currentCommandId) {
@@ -385,13 +375,24 @@ document.addEventListener('DOMContentLoaded', async () => {
                 }
             }, 300);
         }
+
+        // --- NOU: CALCUL AUTOMAT TVA 21% ---
+        else if (event.target.id === 'financiar-total-fara-tva') {
+            const totalFaraTVA = parseFloat(event.target.value) || 0;
+            const totalCuTVA = totalFaraTVA * 1.21; // 21%
+            
+            const tvaField = document.getElementById('financiar-total-cu-tva');
+            if (tvaField) {
+                tvaField.value = totalCuTVA.toFixed(2);
+            }
+        }
+        // --- SFÂRȘIT NOU ---
     });
 
     mainContent.addEventListener('change', async (event) => {
-        // --- LOGICA PENTRU SELECTAREA COMENZII FINANCIARE ---
         if (event.target.id === 'financiar-command-select') {
             const selectedCommandId = event.target.value;
-            state.currentCommandId = selectedCommandId; // Salvăm comanda curentă
+            state.currentCommandId = selectedCommandId; 
 
             const detailsContainer = document.getElementById('financiar-details-container');
             if (!detailsContainer) return;
@@ -403,10 +404,8 @@ document.addEventListener('DOMContentLoaded', async () => {
 
             detailsContainer.innerHTML = '<div class="text-center p-8 text-gray-500">Se încarcă datele și produsele...</div>';
 
-            // 1. Găsim comanda și produsele ei
             const commandData = AppState.getCommands().find(c => c.id === selectedCommandId);
             
-            // 2. Găsim datele financiare
             const financialDataList = AppState.getFinancialData();
             let matchedFinancial = financialDataList.find(item => item.orderid === selectedCommandId);
 
@@ -415,14 +414,9 @@ document.addEventListener('DOMContentLoaded', async () => {
                 matchedFinancial = { orderid: selectedCommandId };
             }
 
-            // 3. Descărcăm detaliile (titluri, poze) pentru produsele din comandă
-            // Aceasta este necesar pentru tabelul de sub formular
             const asins = commandData.products.map(p => p.asin);
-            // Optimizare: Putem filtra doar produsele cu cantitate > 0 înainte de fetch, 
-            // dar fetchProductDetailsInBulk are cache intern, deci e ok.
             const detailsMap = await fetchProductDetailsInBulk(asins);
 
-            // 4. Randăm totul
             detailsContainer.innerHTML = templates.financiarDetails(commandData, matchedFinancial, detailsMap);
         }
 
@@ -465,7 +459,6 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     const lastView = state.currentView || 'comenzi';
     
-    // Logica de pornire (pentru refresh-uri de pagină)
     if (lastView === 'exportDate' && state.currentCommandId) {
         await renderView('exportDate');
         const select = document.getElementById('export-command-select');
@@ -479,7 +472,6 @@ document.addEventListener('DOMContentLoaded', async () => {
             }
         }
     } else if (lastView === 'financiar') {
-        // Dacă am dat refresh pe pagina financiar
         await renderView('financiar');
         if (state.currentCommandId) {
              const select = document.getElementById('financiar-command-select');
