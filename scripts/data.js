@@ -1,36 +1,33 @@
 // scripts/data.js
+import { GET_FINANCIAL_WEBHOOK_URL } from './constants.js';
 
-// --- CONFIGURARE WEBHOOKS ---
-// ...
-
-// Noul cache in-memorie pentru detalii produse
-const productCache = {};
+// --- CONFIGURARE WEBHOOKS (Existente - păstrate pentru compatibilitate) ---
 const DATA_FETCH_URL = 'https://automatizare.comandat.ro/webhook/5a447557-8d52-463e-8a26-5902ccee8177';
 const PRODUCT_DETAILS_URL = 'https://automatizare.comandat.ro/webhook/39e78a55-36c9-4948-aa2d-d9301c996562-test';
 const PRODUCT_UPDATE_URL = 'https://automatizare.comandat.ro/webhook/eecb8515-6092-47b0-af12-f10fb23407fa';
+
+// Noul cache in-memorie pentru detalii produse
+const productCache = {};
 
 // --- MANAGEMENT STARE APLICAȚIE ---
 export const AppState = {
     getCommands: () => JSON.parse(sessionStorage.getItem('liveCommandsData') || '[]'),
     setCommands: (commands) => sessionStorage.setItem('liveCommandsData', JSON.stringify(commands)),
 
-    // --- Modificat ---
-    // Citește din cache-ul in-memorie
     getProductDetails: (asin) => productCache[asin] || null,
-
-    // --- Modificat ---
-    // Scrie în cache-ul in-memorie, nu în sessionStorage
     setProductDetails: (asin, data) => {
         productCache[asin] = data;
     },
-
-    // --- NOU: Funcție pentru a curăța cache-ul unui produs ---
     clearProductCache: (asin) => {
         if (asin && productCache[asin]) {
             delete productCache[asin];
             console.log(`Cache invalidat pentru ASIN: ${asin}`);
         }
-    }
+    },
+
+    // --- NOU: Management Date Financiare ---
+    getFinancialData: () => JSON.parse(sessionStorage.getItem('financialData') || '[]'),
+    setFinancialData: (data) => sessionStorage.setItem('financialData', JSON.stringify(data)),
     // --- SFÂRȘIT NOU ---
 };
 
@@ -40,28 +37,21 @@ function processServerData(data) {
         id: commandId,
         name: `Comanda #${commandId.substring(0, 12)}`,
         products: (data[commandId] || []).map(p => ({
-            id: p.productsku, // Păstrăm 'id' ca productsku (pentru 'edit-asin' etc.)
-            uniqueId: `${p.productsku}::${p.manifestsku || 'N/A'}`, // Noul ID unic pentru navigație
+            id: p.productsku,
+            uniqueId: `${p.productsku}::${p.manifestsku || 'N/A'}`,
             asin: p.asin,
             expected: p.orderedquantity || 0,
             found: (p.bncondition || 0) + (p.vgcondition || 0) + (p.gcondition || 0) + (p.broken || 0),
             manifestsku: p.manifestsku || null,
             listingReady: p.listingready || false,
-            
-            // --- MODIFICARE: Adăugat pentru funcția de export ---
             bncondition: p.bncondition || 0,
             vgcondition: p.vgcondition || 0,
             gcondition: p.gcondition || 0,
             broken: p.broken || 0,
-            
-            // --- MODIFICARE: Placeholder pentru datele care lipsesc momentan din webhook ---
-            // Aceste date sunt cerute de funcția de export, dar nu par a fi în 'p'
-            // Vor fi 'undefined' dacă nu vin de la server, ceea ce e ok.
             stockcode: p.stockcode, 
             unitweight: p.unitweight,
             estimatedsalevaluewithvat: p.estimatedsalevaluewithvat,
-            verificationready: p.verificationready // Necesar pentru "Update Stoc Real"
-            // --- SFÂRȘIT MODIFICARE ---
+            verificationready: p.verificationready
         }))
     }));
 }
@@ -74,19 +64,9 @@ export async function fetchDataAndSyncState() {
         if (!response.ok) throw new Error(`Eroare de rețea: ${response.status}`);
         
         const responseData = await response.json();
-        
-        // --- DEBUG START ---
-        console.log("Date brute primite de la webhook (înainte de procesare):", JSON.parse(JSON.stringify(responseData.data)));
-        // --- DEBUG END ---
-
         if (responseData.status !== 'success' || !responseData.data) throw new Error('Răspuns invalid de la server');
         
         const processedData = processServerData(responseData.data);
-
-        // --- DEBUG START ---
-        console.log("Date procesate și salvate în AppState (după procesare):", processedData);
-        // --- DEBUG END ---
-        
         AppState.setCommands(processedData);
         return true;
     } catch (error) { console.error('Sincronizarea datelor a eșuat:', error); return false; }
@@ -114,53 +94,32 @@ export async function fetchProductDetailsInBulk(asins) {
 }
 
 export async function saveProductDetails(asin, updatedData) {
-
-    function makeQueryFriendly(str) {
-        return str ? str.replace(/'/g, " ") : str;
-    }
+    function makeQueryFriendly(str) { return str ? str.replace(/'/g, " ") : str; }
 
     const processedData = JSON.parse(JSON.stringify(updatedData));
-    
-    if (!processedData.features || typeof processedData.features !== 'object') {
-        processedData.features = {};
-    }
+    if (!processedData.features || typeof processedData.features !== 'object') processedData.features = {};
 
     if (processedData.other_versions) {
         for (const langCode in processedData.other_versions) {
             const version = processedData.other_versions[langCode];
-            
             if (version && typeof version === 'object') {
-                if (!version.features || typeof version.features !== 'object') {
-                    version.features = {};
-                }
+                if (!version.features || typeof version.features !== 'object') version.features = {};
             }
         }
     }
 
-
-    if (processedData.title) {
-        processedData.title = makeQueryFriendly(processedData.title);
-    }
-    if (processedData.description) {
-        processedData.description = makeQueryFriendly(processedData.description);
-    }
+    if (processedData.title) processedData.title = makeQueryFriendly(processedData.title);
+    if (processedData.description) processedData.description = makeQueryFriendly(processedData.description);
 
     if (processedData.other_versions) {
         for (const langCode in processedData.other_versions) {
             const version = processedData.other_versions[langCode];
-            if (version && version.title) {
-                version.title = makeQueryFriendly(version.title);
-            }
-            if (version && version.description) {
-                version.description = makeQueryFriendly(version.description);
-            }
+            if (version && version.title) version.title = makeQueryFriendly(version.title);
+            if (version && version.description) version.description = makeQueryFriendly(version.description);
         }
     }
 
-    const payload = {
-        asin,
-        updatedData: processedData
-    };
+    const payload = { asin, updatedData: processedData };
 
     try {
         const response = await fetch(PRODUCT_UPDATE_URL, {
@@ -172,12 +131,35 @@ export async function saveProductDetails(asin, updatedData) {
             console.error(`Salvarea a eșuat:`, await response.text());
             return false;
         }
-
         AppState.setProductDetails(asin, updatedData);
-
         return true;
     } catch (error) {
         console.error('Eroare de rețea la salvare:', error);
+        return false;
+    }
+}
+
+// --- NOU: Funcție pentru preluarea datelor financiare ---
+export async function fetchFinancialData() {
+    try {
+        const response = await fetch(GET_FINANCIAL_WEBHOOK_URL, {
+            method: 'GET',
+            headers: { 'Content-Type': 'application/json' }
+        });
+
+        if (!response.ok) throw new Error(`Eroare HTTP: ${response.status}`);
+
+        const data = await response.json();
+        
+        if (Array.isArray(data)) {
+            AppState.setFinancialData(data);
+            return true;
+        } else {
+            console.error("Format date financiare invalid (așteptat array):", data);
+            return false;
+        }
+    } catch (error) {
+        console.error('Eroare la preluarea datelor financiare:', error);
         return false;
     }
 }
