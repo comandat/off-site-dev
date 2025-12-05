@@ -7,16 +7,12 @@ import { languages, languageNameToCodeMap } from './constants.js';
 export function initializeSortable() {
     const thumbsContainer = document.getElementById('thumbnails-container');
     
-    // --- MODIFICARE ---
-    // Întâi distruge instanța veche, dacă există.
     if (state.sortableInstance) {
         state.sortableInstance.destroy();
-        state.sortableInstance = null; // Important: resetează starea
+        state.sortableInstance = null;
     }
     
-    // Doar dacă noul container există, creează o instanță nouă.
     if (thumbsContainer) {
-    // --- SFÂRȘIT MODIFICARE ---
         state.sortableInstance = new Sortable(thumbsContainer, {
             animation: 150,
             ghostClass: 'bg-blue-100',
@@ -44,7 +40,6 @@ export function renderCompetitionStars(ratingString) {
 }
 
 export function renderImageGallery(images) {
-    
     const isEffectivelyEmpty = (
         images === undefined || 
         images === null || 
@@ -52,7 +47,6 @@ export function renderImageGallery(images) {
     );
     
     if (isEffectivelyEmpty) {
-    
         let buttonsHTML = `
             <button data-action="add-image-url" class="mt-4 w-full flex items-center justify-center space-x-2 p-2 text-sm text-blue-600 border border-blue-600 rounded-lg hover:bg-blue-50 transition-colors">
                 <span class="material-icons text-base">add_link</span>
@@ -83,7 +77,6 @@ export function renderImageGallery(images) {
     }
 
     const filteredImages = images.filter(img => img);
-    
     const uniqueImages = [...new Set(filteredImages)];
     const imagesToRender = uniqueImages;
     const mainImageSrc = imagesToRender[0] || '';
@@ -130,78 +123,237 @@ export function renderImageGallery(images) {
     `;
 }
 
-
 // --- OBIECTUL PRINCIPAL DE TEMPLATES ---
 
 export const templates = {
 
-    // --- MODIFICARE: Funcție helper adăugată pentru a formata câmpurile ---
     /**
      * Creează un câmp de formular pentru pagina financiară.
-     * @param {string} id - ID-ul elementului input
-     * @param {string} label - Textul pentru etichetă
-     * @param {string} value - Valoarea câmpului
-     * @param {boolean} readonly - Dacă câmpul este non-editabil
-     * @param {string} type - Tipul input-ului (text, number, date)
      */
     financiarInput: (id, label, value = '', readonly = false, type = 'text') => `
         <div class="col-span-1">
             <label for="${id}" class="block text-sm font-medium text-gray-500">${label}</label>
             <input type="${type}" id="${id}" name="${id}" value="${value}" 
-                   class="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm 
-                          ${readonly ? 'bg-gray-100 text-gray-600 cursor-not-allowed' : 'bg-white'}" 
+                   class="no-spinner mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm 
+                          ${readonly ? 'bg-gray-100 text-gray-600 cursor-not-allowed' : 'bg-white'} focus:ring-blue-500 focus:border-blue-500" 
                    ${readonly ? 'readonly' : ''}
                    ${type === 'number' ? 'step="0.01"' : ''}>
         </div>
     `,
 
     /**
-     * Template pentru detaliile financiare ale unei comenzi
-     * @param {object} commandData - Obiectul cu datele comenzii (sau null)
+     * Generează tabelul de produse pentru pagina Financiar
      */
-    financiarDetails: (commandData) => {
+    financiarProductTable: (products, detailsMap, commandId) => {
+        if (!products || products.length === 0) return '';
+
+        // Procesăm produsele pentru a calcula erorile și sortarea
+        const processedProducts = products.map(p => {
+            const receivedQty = (p.bncondition || 0) + (p.vgcondition || 0) + (p.gcondition || 0);
+            
+            // Dacă cantitatea primită e <= 0, ignorăm produsul (va fi filtrat mai jos)
+            if (receivedQty <= 0) return null;
+
+            const details = detailsMap[p.asin] || {};
+            const roData = details.other_versions?.['romanian'] || {};
+            
+            // Preluare date pentru afișare
+            const title = (roData.title || details.title || '').trim();
+            const mainImage = (roData.images && roData.images[0]) ? roData.images[0] : ((details.images && details.images[0]) ? details.images[0] : '');
+            const price = parseFloat(details.price) || 0;
+            const manifestSku = p.manifestsku || '';
+
+            // Detectare erori
+            const errors = [];
+            if (!manifestSku) errors.push("Lipsește ManifestSKU");
+            if (!title || title === "N/A" || title.length < 10) errors.push("Titlu invalid sau prea scurt");
+            if (price <= 0) errors.push("Preț estimat <= 0");
+
+            return {
+                ...p,
+                displayTitle: title || 'N/A',
+                displayImage: mainImage,
+                displayPrice: price,
+                displayQty: receivedQty,
+                manifestSku: manifestSku,
+                errors: errors,
+                hasErrors: errors.length > 0
+            };
+        }).filter(p => p !== null); // Eliminăm produsele cu cantitate 0
+
+        // Sortare: Erorile la început
+        processedProducts.sort((a, b) => {
+            if (a.hasErrors && !b.hasErrors) return -1;
+            if (!a.hasErrors && b.hasErrors) return 1;
+            return 0;
+        });
+
+        // Generare HTML rânduri
+        const rowsHTML = processedProducts.map(p => {
+            const rowClass = p.hasErrors ? 'bg-red-50 hover:bg-red-100 border-l-4 border-red-500' : 'hover:bg-gray-50';
+            
+            // Iconiță eroare cu tooltip
+            let warningIcon = '';
+            if (p.hasErrors) {
+                const errorMsg = p.errors.join(', ');
+                warningIcon = `<span class="material-icons text-red-600 cursor-help" title="${errorMsg}">error</span>`;
+            }
+
+            // Coloane
+            // 0: Manifest SKU (+ warning icon)
+            const colManifest = `
+                <td class="px-4 py-4 whitespace-nowrap text-sm text-gray-900 font-medium">
+                    <div class="flex items-center space-x-2">
+                        ${warningIcon}
+                        <span>${p.manifestSku || '<span class="text-red-500 italic">Lipsă</span>'}</span>
+                    </div>
+                </td>`;
+
+            // 1: ASIN (Link către produs)
+            // Butonul de back va fi gestionat de logica de navigație (state.previousView)
+            const colAsin = `
+                <td class="px-4 py-4 whitespace-nowrap text-sm">
+                    <button data-action="go-to-product" 
+                            data-command-id="${commandId}" 
+                            data-product-id="${p.uniqueId}" 
+                            class="text-blue-600 hover:text-blue-900 font-bold hover:underline">
+                        ${p.asin}
+                    </button>
+                </td>`;
+
+            // 2: Poză 1:1
+            const colImage = `
+                <td class="px-4 py-4 whitespace-nowrap">
+                    <div class="h-16 w-16 flex-shrink-0">
+                         <img class="h-16 w-16 rounded object-cover border border-gray-200" src="${p.displayImage || 'https://via.placeholder.com/64?text=No+Img'}" alt="">
+                    </div>
+                </td>`;
+
+            // 3: Titlu RO
+            const colTitle = `
+                <td class="px-4 py-4 text-sm text-gray-500">
+                    <div class="line-clamp-2 max-w-xs" title="${p.displayTitle}">${p.displayTitle}</div>
+                </td>`;
+
+            // 4: Preț Estimat
+            const priceClass = p.displayPrice <= 0 ? 'text-red-600 font-bold' : 'text-gray-900';
+            const colPrice = `
+                <td class="px-4 py-4 whitespace-nowrap text-sm ${priceClass}">
+                    ${p.displayPrice.toFixed(2)}
+                </td>`;
+
+            // 5: Cantitate
+            const colQty = `
+                <td class="px-4 py-4 whitespace-nowrap text-sm text-gray-900 text-center font-bold">
+                    ${p.displayQty}
+                </td>`;
+
+            return `<tr class="${rowClass}">${colManifest}${colAsin}${colImage}${colTitle}${colPrice}${colQty}</tr>`;
+        }).join('');
+
+        return `
+            <div class="mt-8">
+                <h3 class="text-lg font-bold text-gray-800 mb-4">Lista Produse Recepționate</h3>
+                <div class="overflow-x-auto shadow ring-1 ring-black ring-opacity-5 md:rounded-lg">
+                    <table class="min-w-full divide-y divide-gray-300">
+                        <thead class="bg-gray-50">
+                            <tr>
+                                <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Manifest SKU</th>
+                                <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ASIN</th>
+                                <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Imagine</th>
+                                <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Titlu (RO)</th>
+                                <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Preț Est.</th>
+                                <th scope="col" class="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Cantitate</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-gray-200 bg-white">
+                            ${rowsHTML}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        `;
+    },
+
+    /**
+     * Template pentru detaliile financiare ale unei comenzi + Tabel Produse
+     * @param {object} commandData - Datele comenzii selectate (produse, id, nume)
+     * @param {object} financialData - Datele financiare brute (din webhook)
+     * @param {object} detailsMap - Detaliile bulk ale produselor (titluri, poze)
+     */
+    financiarDetails: (commandData, financialData, detailsMap) => {
         if (!commandData) {
             return '<p class="text-gray-500 text-center col-span-full">Selectați o comandă pentru a vedea detaliile.</p>';
         }
-        
-        // Simulare date - acestea vor veni de la un API
-        const data = {
-            orderdate: commandData.orderdate || 'N/A',
-            totalordercostwithoutvat: commandData.totalordercostwithoutvat || 0,
-            transportcost: commandData.transportcost || 0,
-            discount: commandData.discount || 0,
-            currency: commandData.currency || 'EUR',
-            exchangerate: commandData.exchangerate || 1,
-        };
-        
-        // Calcul TVA
-        const totalCuTVA = (parseFloat(data.totalordercostwithoutvat) || 0) * 1.21;
 
-        return `
+        // --- CSS pentru a ascunde spinner-ul la input number ---
+        const noSpinnerStyle = `
+            <style>
+                .no-spinner::-webkit-inner-spin-button, 
+                .no-spinner::-webkit-outer-spin-button { 
+                    -webkit-appearance: none; 
+                    margin: 0; 
+                }
+                .no-spinner {
+                    -moz-appearance: textfield;
+                }
+            </style>
+        `;
+
+        // Mapăm datele financiare pe structura webhook-ului
+        const data = {
+            orderid: financialData?.orderid || commandData.id,
+            orderdate: financialData?.orderdate ? financialData.orderdate.split('T')[0] : '2025-01-01', // Fallback
+            total_no_vat: financialData?.totalordercostwithoutvat || 0,
+            total_with_vat: financialData?.totalordercostwithvat || 0,
+            transport: financialData?.transportcost || 0,
+            discount: financialData?.discount || 0,
+            currency: financialData?.currency || 'RON',
+            rate: financialData?.exchangerate || '',
+        };
+
+        const formHTML = `
+            ${noSpinnerStyle}
+            <input type="hidden" id="financiar-order-id" value="${data.orderid}">
+
             <div class="col-span-1">
                 <label class="block text-sm font-medium text-gray-500">Data Comenzii</label>
                 <input type="text" value="${data.orderdate}" 
                        class="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm bg-gray-100 text-gray-600 cursor-not-allowed" readonly>
             </div>
             
-            ${templates.financiarInput('financiar-total-fara-tva', 'Total Comandă (fără TVA)', data.totalordercostwithoutvat, false, 'number')}
+            ${templates.financiarInput('financiar-total-fara-tva', 'Total Comandă (fără TVA)', data.total_no_vat, false, 'number')}
+            ${templates.financiarInput('financiar-total-cu-tva', 'Total Comandă (cu TVA)', data.total_with_vat, false, 'number')}
             
-            <div class="col-span-1">
-                <label class="block text-sm font-medium text-gray-500">Total Comandă (cu TVA 21%)</label>
-                <input type="text" id="financiar-total-cu-tva" value="${totalCuTVA.toFixed(2)}" 
-                       class="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm bg-gray-100 text-gray-600 cursor-not-allowed" readonly>
-            </div>
-
-            ${templates.financiarInput('financiar-cost-transport', 'Cost Transport', data.transportcost, false, 'number')}
+            ${templates.financiarInput('financiar-cost-transport', 'Cost Transport', data.transport, false, 'number')}
             ${templates.financiarInput('financiar-reducere', 'Reducere', data.discount, false, 'number')}
+            
             ${templates.financiarInput('financiar-moneda', 'Monedă', data.currency, false, 'text')}
-            ${templates.financiarInput('financiar-rata-schimb', 'Rată de Schimb', data.exchangerate, false, 'number')}
+            ${templates.financiarInput('financiar-rata-schimb', 'Rată de Schimb (opțional)', data.rate, false, 'number')}
+
+            <div class="col-span-full mt-4 flex justify-end border-t pt-4">
+                <button id="save-financial-btn" data-action="save-financial" class="px-6 py-3 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2 shadow-lg">
+                    <span class="material-icons">save</span>
+                    Salvează Datele Financiare
+                </button>
+            </div>
+        `;
+
+        // Adăugăm tabelul de produse dedesubt
+        const tableHTML = templates.financiarProductTable(commandData.products, detailsMap || {}, commandData.id);
+
+        return `
+            <div class="col-span-full grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                ${formHTML}
+            </div>
+            <div class="col-span-full">
+                ${tableHTML}
+            </div>
         `;
     },
 
     /**
-     * Template pentru pagina Financiar
-     * @param {Array} commands - Lista tuturor comenzilor
+     * Template pentru pagina Financiar - Container Principal
      */
     financiar: (commands) => {
         const optionsHTML = commands.map(cmd => 
@@ -209,34 +361,28 @@ export const templates = {
         ).join('');
 
         return `
-        <div class="p-6 sm:p-8">
-            <h2 class="text-3xl font-bold text-gray-800 mb-6">Panou Financiar</h2>
+        <div class="p-6 sm:p-8 h-full flex flex-col">
+            <h2 class="text-3xl font-bold text-gray-800 mb-6 flex items-center gap-2">
+                <span class="material-icons text-3xl text-blue-600">payments</span>
+                Panou Financiar
+            </h2>
             
-            <div class="max-w-xl mb-8">
+            <div class="max-w-xl mb-6">
                 <label for="financiar-command-select" class="block text-sm font-medium text-gray-700 mb-2">Selectați Comanda</label>
-                <select id="financiar-command-select" class="w-full p-2 border border-gray-300 rounded-md shadow-sm bg-white">
+                <select id="financiar-command-select" class="w-full p-2 border border-gray-300 rounded-md shadow-sm bg-white focus:ring-blue-500 focus:border-blue-500">
                     <option value="">Alegeți o comandă...</option>
                     ${optionsHTML}
                 </select>
             </div>
             
-            <div id="financiar-details-container" 
-                 class="p-6 bg-white rounded-lg shadow-md grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                ${templates.financiarDetails(null)}
-            </div>
-            
-            <div class="mt-8 p-6 bg-white rounded-lg shadow-md min-h-[200px]">
-                <h3 class="text-lg font-semibold text-gray-700">Secțiune Viitoare</h3>
-                <p class="text-gray-500 mt-2">Acest spațiu este rezervat pentru actualizări viitoare.</p>
+            <div id="financiar-details-container" class="p-6 bg-white rounded-lg shadow-md min-h-[400px]">
+                ${templates.financiarDetails(null, null, null)}
             </div>
         </div>
         `;
     },
 
-    /**
-     * Template pentru pagina Export Date (Placeholder)
-     */
-    // --- MODIFICARE: Template actualizat pentru Export Date ---
+    // ... (restul metodelor: exportDate, comenzi, import, paleti, produse, competition, produsDetaliu rămân neschimbate)
     exportDate: (commands) => {
         const optionsHTML = commands.map(cmd => 
             `<option value="${cmd.id}">${cmd.name}</option>`
@@ -284,8 +430,6 @@ export const templates = {
         </div>
         `;
     },
-    // --- SFÂRȘIT MODIFICARE ---
-
 
     comenzi: (commands) => {
         const commandsHTML = commands.length > 0
@@ -343,7 +487,7 @@ export const templates = {
             const { products, allReady } = palletData;
             const firstProduct = products[0];
             const firstProductDetails = firstProduct ? details[firstProduct.asin] : null;
-            const firstImage = (firstProductDetails?.images || []).filter(img => img)[0] || ''; // Ia prima imagine validă
+            const firstImage = (firstProductDetails?.images || []).filter(img => img)[0] || ''; 
             const readyClass = allReady ? 'bg-green-50' : 'bg-white';
             const readyIcon = allReady ? '<span class="material-icons text-green-500 absolute top-2 right-2" title="Palet Gata">task_alt</span>' : '';
 
@@ -380,7 +524,7 @@ export const templates = {
 
          const productsHTML = productsToShow.map(p => {
             const d = details[p.asin];
-            const firstImage = (d?.images || []).filter(img => img)[0] || ''; // Ia prima imagine validă
+            const firstImage = (d?.images || []).filter(img => img)[0] || ''; 
             const readyClass = p.listingReady ? 'bg-green-50' : 'bg-white';
             const readyIcon = p.listingReady ? '<span class="material-icons text-green-500" title="Gata de listat">task_alt</span>' : '';
 
