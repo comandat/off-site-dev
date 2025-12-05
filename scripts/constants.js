@@ -7,10 +7,11 @@ export const ASIN_UPDATE_WEBHOOK_URL = 'https://automatizare.comandat.ro/webhook
 export const READY_TO_LIST_WEBHOOK_URL = 'https://automatizare.comandat.ro/webhook/124682e2-5f91-4c0a-adf6-4cedf16c2c19';
 export const TRANSLATION_WEBHOOK_URL = 'https://automatizare.comandat.ro/webhook/00e7f965-7cf8-4d96-bb96-b3cbbc2eb27c';
 export const DESCRIPTION_GENERATION_WEBHOOK_URL = 'https://automatizare.comandat.ro/webhook/6b3f30b0-5c57-47b5-9f15-bc8ea8c4960f';
-// --- NOU ---
-// Te rog înlocuiește 'URL_WEBHOOK_TRADUCERE_IMAGINI' cu URL-ul tău real
 export const IMAGE_TRANSLATION_WEBHOOK_URL = 'https://automatizare.comandat.ro/webhook/1d3020a8-ecf0-4c46-8611-bd2a284298b5';
-// --- SFÂRȘIT NOU ---
+
+// --- CONSTANTE FINANCIAR ---
+export const GET_FINANCIAL_WEBHOOK_URL = 'https://automatizare.comandat.ro/webhook/get-financial';
+export const SAVE_FINANCIAL_WEBHOOK_URL = 'https://automatizare.comandat.ro/webhook/save-financial';
 
 export const languages = {
     'bg': 'Bulgarian', 'de': 'German', 'ro': 'Romanian', 'hu': 'Hungarian',
