@@ -6,7 +6,7 @@ import {
     TITLE_GENERATION_WEBHOOK_URL, 
     TRANSLATION_WEBHOOK_URL, 
     IMAGE_TRANSLATION_WEBHOOK_URL,
-    DESCRIPTION_GENERATION_WEBHOOK_URL // <-- Adăugat
+    DESCRIPTION_GENERATION_WEBHOOK_URL 
 } from './constants.js';
 import { renderImageGallery, initializeSortable, templates } from './templates.js';
 import { saveProductDetails } from './data.js';
@@ -24,13 +24,9 @@ export function getCurrentImagesArray() {
     if (!state.editedProductData.other_versions) state.editedProductData.other_versions = {};
     if (!state.editedProductData.other_versions[key]) state.editedProductData.other_versions[key] = {};
 
-    // --- MODIFICARE (Corecție 'not iterable') ---
-    // Verifică dacă images este 'null' sau 'undefined'. 
-    // (!value) prinde ambele cazuri.
     if (!state.editedProductData.other_versions[key].images) {
-        return null; // Returnează null explicit
+        return null; 
     }
-    // --- SFÂRȘIT MODIFICARE ---
 
     return [...state.editedProductData.other_versions[key].images];
 }
@@ -151,13 +147,11 @@ export function loadTabData(versionKey) {
         refreshBtn.classList.toggle('hidden', !isRomanianTab);
     }
     
-    // --- ADAUGAT ACEST BLOC ---
     const refreshDescBtn = document.getElementById('refresh-description-btn');
     if (refreshDescBtn) {
         const isRomanianTab = languageNameToCodeMap[versionKey.toLowerCase()] === 'RO';
         refreshDescBtn.classList.toggle('hidden', !isRomanianTab);
     }
-    // --- SFÂRȘIT BLOC NOU ---
 }
 
 
@@ -199,10 +193,9 @@ export async function saveProductCoreData() {
         const priceValue = document.getElementById('product-price').value;
         state.editedProductData.price = priceValue.trim() === '' ? null : priceValue;
         
-        
         // --- Funcția helper pentru padare ---
         function padImagesArray(imagesArray) {
-            const fillValue = ""; // Folosim string gol
+            const fillValue = ""; 
             
             if (!imagesArray || !Array.isArray(imagesArray)) {
                 return new Array(5).fill(fillValue);
@@ -219,8 +212,6 @@ export async function saveProductCoreData() {
             
             return paddedArray;
         }
-        // --- SFÂRȘIT Funcție helper ---
-        
         
         // 3. Creăm un "payload" PENTRU STAREA LOCALĂ (o copie)
         const payload = JSON.parse(JSON.stringify(state.editedProductData));
@@ -228,7 +219,7 @@ export async function saveProductCoreData() {
         // 3a. Pad-ăm imaginile 'origin'
         payload.images = padImagesArray(payload.images);
         
-        // 3b. Pad-ăm imaginile din 'other_versions' (păstrând cheile "romanian", etc.)
+        // 3b. Pad-ăm imaginile din 'other_versions'
         if (payload.other_versions) {
             for (const langName in payload.other_versions) {
                  payload.other_versions[langName].images = padImagesArray(payload.other_versions[langName].images);
@@ -240,7 +231,6 @@ export async function saveProductCoreData() {
         if (payloadForServer.other_versions) {
             const newOtherVersions = {};
             for (const [langName, langData] of Object.entries(payloadForServer.other_versions)) {
-                // langData.images este DEJA padat din pasul 3b
                 const langCode = (languageNameToCodeMap[langName.toLowerCase()] || langName).toLowerCase();
                 newOtherVersions[langCode] = langData;
             }
@@ -271,7 +261,7 @@ export async function handleProductSave(actionButton) {
     actionButton.textContent = 'Se salvează...';
     actionButton.disabled = true;
     
-    const success = await saveProductCoreData(); // Apelează funcția core
+    const success = await saveProductCoreData(); 
     
     if (success) {
         alert('Salvat cu succes!');
@@ -339,7 +329,6 @@ export async function handleTitleRefresh(actionButton) {
     }
 }
 
-// --- ADAUGĂ ACEASTĂ FUNCȚIE NOUĂ ---
 export async function handleDescriptionRefresh(actionButton) {
     const refreshBtn = actionButton;
     const refreshIcon = refreshBtn.querySelector('.refresh-icon');
@@ -397,11 +386,38 @@ export async function handleDescriptionRefresh(actionButton) {
         refreshBtn.disabled = false;
     }
 }
-// --- SFÂRȘIT FUNCȚIE NOUĂ ---
+
 
 export async function handleTranslationInit(languageOption) {
+    // 1. Salvăm datele din UI în State
+    saveCurrentTabData();
+
     const langCode = languageOption.dataset.langCode;
     const asin = document.getElementById('product-asin').value;
+    
+    // --- ÎNCEPUT VALIDĂRI (NOU) ---
+    const originTitle = state.editedProductData.title || '';
+    const originDescription = state.editedProductData.description || '';
+    const originImages = (state.editedProductData.images || []).filter(img => img);
+
+    // Verificare 1: Descrierea < 50 caractere
+    if (originDescription.trim().length < 50) {
+        alert(`Eroare: Descrierea este prea scurtă (${originDescription.trim().length} caractere). Minim necesar: 50.`);
+        return; 
+    }
+
+    // Verificare 2: Titlul < 10 caractere
+    if (originTitle.trim().length < 10) {
+        alert(`Eroare: Titlul este prea scurt (${originTitle.trim().length} caractere). Minim necesar: 10.`);
+        return; 
+    }
+
+    // Verificare 3: Produsul nu are măcar 3 imagini
+    if (originImages.length < 3) {
+        alert(`Eroare: Produsul are doar ${originImages.length} imagini. Sunt necesare minim 3 imagini pentru a începe traducerea.`);
+        return; 
+    }
+    // --- SFÂRȘIT VALIDĂRI ---
     
     try {
         const response = await fetch(TRANSLATION_WEBHOOK_URL, { 
@@ -432,7 +448,7 @@ export async function handleImageTranslation(button) {
 
     try {
         const asin = document.getElementById('product-asin')?.value;
-        const activeKey = state.activeVersionKey; // ex: "romanian"
+        const activeKey = state.activeVersionKey; 
         
         const originImagesWithValues = (state.editedProductData.images || []).filter(img => img);
         const originImages = [...new Set(originImagesWithValues)];
@@ -470,7 +486,7 @@ export async function handleImageTranslation(button) {
 
         if (result.status === 'success') {
             alert('Traducerea imaginilor a fost inițiată cu succes! Se reîncarcă datele...');
-            return true; // Returnăm succes
+            return true; 
         } else {
             throw new Error('Webhook-ul a răspuns, dar nu cu status "success".');
         }
@@ -478,7 +494,7 @@ export async function handleImageTranslation(button) {
     } catch (error) {
         console.error('Eroare la inițierea traducerii imaginilor:', error);
         alert(`A apărut o eroare: ${error.message}`);
-        return false; // Returnăm eșec
+        return false; 
     } finally {
         button.disabled = false;
         button.innerHTML = originalText;
@@ -488,14 +504,11 @@ export async function handleImageTranslation(button) {
 
 // --- EVENT HANDLERS (PENTRU A FI APELATE DIN main.js) ---
 
-// --- MODIFICARE (Corecție 'not iterable') ---
 export function handleImageActions(action, actionButton) {
-    let currentImages; // Inițializată goală
+    let currentImages; 
 
     if (action === 'delete-image') {
-        currentImages = getCurrentImagesArray(); // Ia imaginile tab-ului curent
-        // Dacă e un tab nou fără imagini, 'currentImages' va fi 'null'.
-        // Îl tratăm ca pe un array gol.
+        currentImages = getCurrentImagesArray(); 
         if (currentImages === null) currentImages = []; 
 
         const imageSrc = actionButton.dataset.imageSrc;
@@ -507,8 +520,7 @@ export function handleImageActions(action, actionButton) {
         }
     }
     else if (action === 'add-image-url') {
-        currentImages = getCurrentImagesArray(); // Ia imaginile tab-ului curent
-        // La fel, tratăm 'null' ca array gol
+        currentImages = getCurrentImagesArray(); 
         if (currentImages === null) currentImages = []; 
 
         const validImages = currentImages.filter(img => img);
@@ -526,17 +538,13 @@ export function handleImageActions(action, actionButton) {
         }
     }
     else if (action === 'copy-origin-images') {
-        // Aici NU apelăm getCurrentImagesArray().
-        // Construim array-ul direct din imaginile 'origin'.
         currentImages = [...(state.editedProductData.images || [])].filter(img => img);
     }
     else {
-        // Acțiune necunoscută
         return;
     }
-    // --- SFÂRȘIT MODIFICARE ---
 
-    setCurrentImagesArray(currentImages); // Setează noul array (care e o copie)
+    setCurrentImagesArray(currentImages); 
     const galleryContainer = document.getElementById('image-gallery-container');
     if (galleryContainer) {
         galleryContainer.innerHTML = renderImageGallery(currentImages);
