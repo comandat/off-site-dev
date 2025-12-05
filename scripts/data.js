@@ -1,12 +1,12 @@
 // scripts/data.js
 import { GET_FINANCIAL_WEBHOOK_URL } from './constants.js';
 
-// --- CONFIGURARE WEBHOOKS (Existente - păstrate pentru compatibilitate) ---
+// --- CONFIGURARE WEBHOOKS ---
 const DATA_FETCH_URL = 'https://automatizare.comandat.ro/webhook/5a447557-8d52-463e-8a26-5902ccee8177';
 const PRODUCT_DETAILS_URL = 'https://automatizare.comandat.ro/webhook/39e78a55-36c9-4948-aa2d-d9301c996562-test';
 const PRODUCT_UPDATE_URL = 'https://automatizare.comandat.ro/webhook/eecb8515-6092-47b0-af12-f10fb23407fa';
 
-// Noul cache in-memorie pentru detalii produse
+// Cache in-memorie pentru detalii produse
 const productCache = {};
 
 // --- MANAGEMENT STARE APLICAȚIE ---
@@ -26,6 +26,7 @@ export const AppState = {
     },
 
     // --- NOU: Management Date Financiare ---
+    // Stocăm datele financiare în sessionStorage pentru persistență între refresh-uri
     getFinancialData: () => JSON.parse(sessionStorage.getItem('financialData') || '[]'),
     setFinancialData: (data) => sessionStorage.setItem('financialData', JSON.stringify(data)),
     // --- SFÂRȘIT NOU ---
@@ -44,6 +45,8 @@ function processServerData(data) {
             found: (p.bncondition || 0) + (p.vgcondition || 0) + (p.gcondition || 0) + (p.broken || 0),
             manifestsku: p.manifestsku || null,
             listingReady: p.listingready || false,
+            
+            // Date necesare pentru export și financiar
             bncondition: p.bncondition || 0,
             vgcondition: p.vgcondition || 0,
             gcondition: p.gcondition || 0,
@@ -152,6 +155,7 @@ export async function fetchFinancialData() {
         const data = await response.json();
         
         if (Array.isArray(data)) {
+            // Salvăm datele primite în AppState
             AppState.setFinancialData(data);
             return true;
         } else {
