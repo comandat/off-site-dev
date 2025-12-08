@@ -41,7 +41,7 @@ async function fetchPalletsData(commandId) {
     }
 }
 
-// --- LOGICA DE CALCUL FINANCIAR REVIZUITĂ (STRICTĂ) ---
+// --- LOGICA DE CALCUL FINANCIAR "FIX PE FIX" ---
 function performFinancialCalculations(commandId, products, palletsData) {
     // 1. Preluare input-uri financiare
     const currencyEl = document.getElementById('financiar-moneda');
@@ -61,30 +61,38 @@ function performFinancialCalculations(commandId, products, palletsData) {
         exchangeRate = rawRate;
     }
 
-    // 2. Mapare Costuri Paleți (Strict pe baza ManifestSKU)
+    // 2. Pregătire Date & Calcul Totale Țintă
+    // Trebuie să știm exact câți bani trebuie să distribuim (TargetTotal)
+    let totalPalletsCostTarget = 0;
     const palletMap = {}; 
+    
     palletsData.forEach(p => {
-        // Convertim costul paletului în RON
-        const cost = parseFloat(p.costwithoutvat || 0) * exchangeRate; 
+        const cost = parseFloat(p.costwithoutvat || 0) * exchangeRate;
         if(p.manifestsku) {
-             palletMap[p.manifestsku] = { cost: cost, totalSales: 0 };
+             palletMap[p.manifestsku] = { 
+                 cost: cost, 
+                 totalSales: 0, 
+                 hasItems: false // Flag pentru a identifica paleții "orfani" (fără produse valide)
+             };
+             totalPalletsCostTarget += cost;
         }
     });
 
-    // 3. Calculăm Total Vânzări per Palet (pentru a stabili ponderea fiecărui produs)
-    //    și Total Cantitate Așteptată (pentru transport)
-    let totalExpectedQty = 0;
+    let transportCostTarget = (parseFloat(transportEl ? transportEl.value : 0) || 0) * exchangeRate;
+    const GRAND_TOTAL_TARGET = totalPalletsCostTarget + transportCostTarget;
+
+    // 3. Identificare Produse Valide și Calcul Vânzări per Palet
     const validProducts = [];
+    let totalValidQty = 0;
     let hasCriticalErrors = false;
 
+    // Iterăm produsele pentru a calcula totalurile de vânzare per palet
     for (const p of products) {
-        totalExpectedQty += (p.expected || 0); // Folosit la transport
-
-        // FORMULA CANTITATE: (Bun + VG + G + Broken) - Broken = Bun + VG + G
+        // FORMULA CANTITATE: (Bun + VG + G)
         const totalReceived = (p.bncondition || 0) + (p.vgcondition || 0) + (p.gcondition || 0) + (p.broken || 0);
         const qty = totalReceived - (p.broken || 0);
 
-        if (qty <= 0) continue; // Ignorăm ce nu s-a vândut
+        if (qty <= 0) continue; 
 
         const details = AppState.getProductDetails(p.asin) || {};
         const roData = details.other_versions?.['romanian'] || {};
@@ -92,18 +100,18 @@ function performFinancialCalculations(commandId, products, palletsData) {
         const price = parseFloat(details.price) || 0;
         const manifestSku = p.manifestsku;
 
-        // Validări
         if (!manifestSku || price <= 0) {
             hasCriticalErrors = true; 
             break; 
         }
 
-        // Adunăm valoarea de vânzare la paletul corespunzător
         if (palletMap[manifestSku]) {
             palletMap[manifestSku].totalSales += (price * qty);
+            palletMap[manifestSku].hasItems = true;
         }
         
         validProducts.push({ ...p, price, qty, manifestSku });
+        totalValidQty += qty;
     }
 
     if (hasCriticalErrors) {
@@ -111,55 +119,85 @@ function performFinancialCalculations(commandId, products, palletsData) {
         return null;
     }
 
-    // 4. Calcul Cost Transport Unitar
-    // Îl distribuim la toată marfa din camion (Expected) pentru a fi un cost mic și stabil.
-    let transportCostTotal = (parseFloat(transportEl ? transportEl.value : 0) || 0) * exchangeRate;
-    let transportPerUnit = 0;
-    if (totalExpectedQty > 0) {
-        transportPerUnit = transportCostTotal / totalExpectedQty;
+    if (totalValidQty === 0) {
+        alert("Nu există produse valide (cantitate > 0) pentru a distribui costurile.");
+        return null;
     }
 
-    // 5. Calcul Final per Produs (FĂRĂ REDISTRIBUIRE PALEȚI MORȚI)
-    const calculatedResults = {};
+    // 4. Gestionare Costuri Globale (Transport + Paleți Orfani)
+    // Dacă un palet nu are niciun produs valid scanat, costul lui devine "Global" și se împarte la toate produsele.
+    let globalOverheadCost = transportCostTarget;
+
+    Object.keys(palletMap).forEach(sku => {
+        const pal = palletMap[sku];
+        if (!pal.hasItems) {
+            // Paletul există în factură dar nu are produse valide în recepție -> Costul lui se redistribuie global
+            globalOverheadCost += pal.cost;
+        }
+    });
+
+    // Cost Global per Bucată (distribuit la cantitatea REALĂ existentă)
+    const overheadPerUnit = globalOverheadCost / totalValidQty;
+
+    // 5. Calcul Brut per Produs (High Precision)
+    // Nu rotunjim încă!
+    let currentCalculatedSum = 0;
+    const resultsBuffer = [];
 
     validProducts.forEach(p => {
         let percent = 0;
-        let unitCost = 0;
-        let totalCost = 0;
-
+        let palletComponentTotal = 0; // Cât din costul paletului ia acest produs (toată cantitatea lui)
+        
         const pal = palletMap[p.manifestSku];
         
         if (pal && pal.totalSales > 0) {
-            // PASUL A: Cât reprezintă prețul acestui produs din vânzările totale ale paletului?
-            // Ex: Produs 65 RON / Vânzări Palet 3000 RON = 0.021 (2.1%)
-            percent = p.price / pal.totalSales;
-            
-            // PASUL B: Aplicăm procentul la costul de achiziție al paletului
-            // Ex: 0.021 * Cost Palet 456 RON = ~9.8 RON
-            const costFromPallet = percent * pal.cost;
-            
-            // PASUL C: Adăugăm transportul (ex: 0.5 RON)
-            // Cost Unitar = 9.8 + 0.5 = 10.3 RON (Nu 107 RON!)
-            unitCost = costFromPallet + transportPerUnit;
-            
-            // PASUL D: Înmulțim cu cantitatea
-            totalCost = unitCost * p.qty;
-        } else {
-             // Fallback: Dacă nu găsim paletul, punem doar transportul (ca să nu iasă 0 sau eroare imensă)
-             unitCost = transportPerUnit;
-             totalCost = unitCost * p.qty;
+            // (Preț Produs * Cantitate Produs) / Total Vânzări Palet = Ponderea valorică a liniei în palet
+            const lineShare = (p.price * p.qty) / pal.totalSales;
+            palletComponentTotal = lineShare * pal.cost;
         }
 
-        calculatedResults[p.uniqueId] = {
-            percentDisplay: parseFloat(percent.toFixed(4)), 
-            unitCost: unitCost,
-            totalCost: totalCost
+        // Cost Global (Transport etc) pentru toată linia
+        const overheadComponentTotal = overheadPerUnit * p.qty;
+
+        // Cost Total Linie (Palet + Global)
+        const lineTotalCost = palletComponentTotal + overheadComponentTotal;
+        
+        currentCalculatedSum += lineTotalCost;
+
+        resultsBuffer.push({
+            uniqueId: p.uniqueId,
+            qty: p.qty,
+            lineTotalCost: lineTotalCost, // Păstrăm precizia maximă
+            // Pentru afișare procent (informativ)
+            percentDisplay: (pal && pal.totalSales > 0) ? (p.price / pal.totalSales) : 0
+        });
+    });
+
+    // 6. Corecția de "Centimă" (Distribuirea restului de rotunjire)
+    // Comparăm suma calculată intern cu suma țintă de pe factură
+    const diff = GRAND_TOTAL_TARGET - currentCalculatedSum;
+
+    // Adăugăm diferența la primul produs (sau o distribuim, dar la sume mici e irelevant)
+    // De obicei diferența e de ordinul 0.000001 sau câțiva bani.
+    if (resultsBuffer.length > 0) {
+        resultsBuffer[0].lineTotalCost += diff;
+    }
+
+    // 7. Finalizare și Rotunjire pentru Afișare
+    const finalResults = {};
+    resultsBuffer.forEach(res => {
+        // Acum derivăm Costul Unitar din Totalul ajustat perfect
+        const finalUnitCost = res.lineTotalCost / res.qty;
+
+        finalResults[res.uniqueId] = {
+            percentDisplay: parseFloat(res.percentDisplay.toFixed(4)),
+            unitCost: finalUnitCost, // Se va afișa cu toFixed(2) în template
+            totalCost: res.lineTotalCost // Se va afișa cu toFixed(2) în template
         };
     });
 
-    return calculatedResults;
+    return finalResults;
 }
-
 
 document.addEventListener('DOMContentLoaded', async () => {
     const mainContent = document.getElementById('main-content');
