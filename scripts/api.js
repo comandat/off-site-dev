@@ -6,7 +6,8 @@ import {
     SAVE_FINANCIAL_WEBHOOK_URL,
     GENERATE_NIR_WEBHOOK_URL 
 } from './constants.js';
-import { fetchDataAndSyncState, AppState } from './data.js';
+import { fetchDataAndSyncState, AppState, fetchProductDetailsInBulk } from './data.js';
+import { state } from './state.js';
 
 /**
  * Trimite starea "Gata de listat" pentru un produs sau o comandă întreagă.
@@ -209,113 +210,155 @@ export async function saveFinancialDetails(payload, buttonElement) {
     }
 }
 
-// --- Generare NIR ---
+// --- Generare NIR (PDF in Browser) ---
 export async function generateNIR(commandId, buttonElement) {
     const originalHTML = buttonElement.innerHTML;
     buttonElement.disabled = true;
     buttonElement.innerHTML = '<div class="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin mx-auto"></div>';
 
     try {
+        // 1. Verificări preliminare: Trebuie să avem date calculate
+        if (!state.financialCalculations || !state.financialCalculations[commandId]) {
+            throw new Error("Nu există calcule financiare pentru această comandă. Vă rugăm rulați 'Rulează Calcule' în tab-ul Financiar înainte de a genera NIR-ul.");
+        }
+
         const command = AppState.getCommands().find(c => c.id === commandId);
-        if (!command) throw new Error('Comanda nu a fost găsită în memorie.');
+        if (!command) throw new Error('Comanda nu a fost găsită.');
 
-        const products = command.products;
-        const productsPayload = [];
-        let hasErrors = false;
+        // Asigurăm că avem detaliile (titlurile) pentru produse
+        const asins = command.products.map(p => p.asin);
+        const detailsMap = await fetchProductDetailsInBulk(asins);
+        
+        const financials = state.financialCalculations[commandId];
+        const rows = [];
+        let grandTotalValoare = 0;
+        let grandTotalTVA = 0;
 
-        // Validăm produsele înainte de a trimite
-        for (const p of products) {
-            const receivedQty = (p.bncondition || 0) + (p.vgcondition || 0) + (p.gcondition || 0);
-            
-            // Ignorăm produsele care nu au fost recepționate (cantitate 0)
-            if (receivedQty <= 0) continue;
+        // 2. Construire Date Tabel
+        command.products.forEach(p => {
+            const calcData = financials[p.uniqueId];
+            // Ignorăm produsele care nu au fost recepționate sau calculate
+            if (!calcData || calcData.totalCost <= 0) return;
 
-            const details = AppState.getProductDetails(p.asin) || {};
-            const roData = details.other_versions?.['romanian'] || {};
-            const title = (roData.title || '').trim();
-            const price = parseFloat(details.price) || 0;
-            const manifestSku = p.manifestsku || '';
+            const unitCost = calcData.unitCost;
+            const details = detailsMap[p.asin] || {};
+            const roTitle = (details.other_versions?.['romanian']?.title || details.title || "N/A").trim();
 
-            // Criterii de eroare:
-            // 1. Lipsă ManifestSKU
-            // 2. Titlu RO lipsă, "N/A" sau prea scurt
-            // 3. Preț <= 0
-            if (!manifestSku || !title || title === "N/A" || title.length < 10 || price <= 0) {
-                hasErrors = true;
-                console.warn(`Produs cu eroare: ${p.asin}`, { manifestSku, title, price });
-                break; // Ne oprim la prima eroare
-            }
+            // Definim condițiile pentru a sparge rândurile (exact ca în Apps Script)
+            // CN = Ca Nou (BN), FB = Foarte Bun (VG), B = Bun (G)
+            const conditions = [
+                { qty: p.bncondition, suffix: " - CN" },
+                { qty: p.vgcondition, suffix: " - FB" },
+                { qty: p.gcondition,  suffix: " - B" }
+            ];
 
-            productsPayload.push({
-                asin: p.asin,
-                manifestSku: manifestSku,
-                title: title,
-                price: price,
-                quantity: receivedQty,
-                uniqueId: p.uniqueId
+            conditions.forEach(cond => {
+                if (cond.qty > 0) {
+                    const valoare = cond.qty * unitCost;
+                    const tva = valoare * 0.21; // TVA 21%
+
+                    grandTotalValoare += valoare;
+                    grandTotalTVA += tva;
+
+                    rows.push([
+                        p.asin,                     // Cod Articol
+                        roTitle + cond.suffix,      // Denumire + Sufix
+                        "buc",                      // U.M.
+                        cond.qty,                   // Cantitate
+                        unitCost.toFixed(2),        // Pret Unitar (RON)
+                        valoare.toFixed(2),         // Valoare
+                        tva.toFixed(2)              // TVA (21%)
+                    ]);
+                }
             });
-        }
-
-        if (hasErrors) {
-            alert("Nu se poate genera NIR-ul!\n\nExistă produse recepționate care au erori (ManifestSKU lipsă, Titlu RO invalid/scurt sau Preț 0).\n\nVerificați tabelul pentru rândurile marcate cu roșu.");
-            return false;
-        }
-
-        if (productsPayload.length === 0) {
-            alert("Nu există produse recepționate (cantitate > 0) pentru a genera NIR.");
-            return false;
-        }
-
-        const payload = {
-            commandId: commandId,
-            products: productsPayload
-        };
-
-        const response = await fetch(GENERATE_NIR_WEBHOOK_URL, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
         });
 
-        if (!response.ok) {
-            const errorText = await response.text();
-            throw new Error(`Eroare HTTP: ${response.status}. ${errorText}`);
+        if (rows.length === 0) {
+            throw new Error("Nu există produse valide recepționate pentru a genera NIR.");
         }
 
-        // Verificăm tipul răspunsului. Dacă e JSON (probabil eroare sau link), tratăm corespunzător.
-        // Dacă e Blob (PDF), îl descărcăm.
-        const contentType = response.headers.get('content-type');
-        if (contentType && contentType.includes('application/json')) {
-             const jsonRes = await response.json();
-             if(jsonRes.status === 'error') {
-                 throw new Error(jsonRes.message || 'Eroare necunoscută la generare.');
-             }
-             // Dacă serverul returnează un URL
-             if (jsonRes.url) {
-                 window.open(jsonRes.url, '_blank');
-                 alert('NIR generat cu succes!');
-                 return true;
-             }
-        }
+        // 3. Generare PDF cu jsPDF
+        const { jsPDF } = window.jspdf;
+        const doc = new jsPDF();
 
-        // Fallback: Presupunem că e fișier (blob)
-        const blob = await response.blob();
-        const downloadUrl = window.URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = downloadUrl;
-        a.download = `NIR_${commandId}.pdf`; 
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-        window.URL.revokeObjectURL(downloadUrl);
+        // --- Header ---
+        doc.setFontSize(10);
+        doc.text("T&G SHOP AND BUSINESS S.R.L.", 14, 15);
+        
+        doc.setFontSize(16);
+        doc.setFont("helvetica", "bold");
+        doc.text("NOTA DE RECEPTIE SI CONSTATARE DE DIFERENTE", 105, 25, { align: "center" });
+        doc.line(14, 27, 196, 27); // Linie sub titlu
 
-        alert('NIR generat și descărcat cu succes!');
-        return true;
+        // --- Info Comandă ---
+        doc.setFontSize(10);
+        doc.setFont("helvetica", "normal");
+        
+        const today = new Date().toLocaleDateString('ro-RO');
+        const infoY = 35;
+        
+        doc.text(`Numar Factura: ${command.name}`, 14, infoY);
+        doc.text(`Data: ${today}`, 14, infoY + 5);
+        doc.text(`Gestiune: Principal`, 14, infoY + 10);
+        
+        doc.text(`Furnizor: JLI Trading Limited`, 120, infoY);
+        doc.text(`Cod Fiscal: PL5263222338`, 120, infoY + 5);
+
+        // --- Tabel Produse ---
+        doc.autoTable({
+            startY: 55,
+            head: [['Cod Articol', 'Denumire', 'U.M.', 'Cant', 'Pret Unitar', 'Valoare', 'TVA (21%)']],
+            body: rows,
+            theme: 'grid',
+            styles: { fontSize: 8, cellPadding: 2 },
+            headStyles: { fillColor: [220, 220, 220], textColor: 20, fontStyle: 'bold' },
+            columnStyles: {
+                0: { cellWidth: 25 }, // Cod
+                1: { cellWidth: 'auto' }, // Denumire (auto)
+                2: { cellWidth: 10 }, // UM
+                3: { cellWidth: 12, halign: 'center' }, // Cant
+                4: { cellWidth: 20, halign: 'right' }, // Pret
+                5: { cellWidth: 20, halign: 'right' }, // Valoare
+                6: { cellWidth: 20, halign: 'right' }  // TVA
+            },
+            foot: [[
+                { content: 'TOTAL:', colSpan: 5, styles: { halign: 'right', fontStyle: 'bold' } },
+                { content: grandTotalValoare.toFixed(2), styles: { halign: 'right', fontStyle: 'bold' } },
+                { content: grandTotalTVA.toFixed(2), styles: { halign: 'right', fontStyle: 'bold' } }
+            ]],
+        });
+
+        // --- Total General ---
+        const finalY = doc.lastAutoTable.finalY + 10;
+        doc.setFontSize(11);
+        doc.setFont("helvetica", "bold");
+        const totalGeneral = grandTotalValoare + grandTotalTVA;
+        doc.text(`TOTAL GENERAL (Valoare + TVA): ${totalGeneral.toFixed(2)} RON`, 196, finalY, { align: "right" });
+
+        // --- Footer (Semnături) ---
+        const footerY = finalY + 20;
+        doc.setDrawColor(200);
+        doc.line(14, footerY, 196, footerY); // Linie delimitare
+        
+        doc.setFontSize(9);
+        doc.setFont("helvetica", "normal");
+        
+        // Coloane semnături
+        doc.text("COMISIA DE RECEPTIE", 30, footerY + 10, { align: "center" });
+        doc.text("PRIMIT IN GESTIUNE", 170, footerY + 10, { align: "center" });
+        
+        doc.text("Nume si Prenume: ________________", 30, footerY + 25, { align: "center" });
+        doc.text("Semnatura: ________________", 30, footerY + 35, { align: "center" });
+        
+        doc.text("Semnatura: ________________", 170, footerY + 35, { align: "center" });
+
+        // Salvare
+        doc.save(`NIR_${command.name.replace(/[^a-z0-9]/gi, '_')}.pdf`);
+        alert("NIR generat cu succes!");
 
     } catch (error) {
         console.error('Eroare la generarea NIR:', error);
         alert(`Eroare: ${error.message}`);
-        return false;
     } finally {
         buttonElement.disabled = false;
         buttonElement.innerHTML = originalHTML;
