@@ -13,5 +13,6 @@ export const state = {
     currentSearchQuery: '',
     currentView: 'comenzi',
     previousView: null,
-    searchTimeout: null
+    searchTimeout: null,
+    financialCalculations: {}
 };
