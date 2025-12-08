@@ -5,7 +5,7 @@ import { initGlobalListeners } from './lightbox.js';
 import { sendReadyToList, handleUploadSubmit, handleAsinUpdate, saveFinancialDetails, generateNIR } from './api.js'; 
 import { AppState, fetchDataAndSyncState, fetchProductDetailsInBulk } from './data.js';
 import { templates } from './templates.js';
-import { GET_PALLETS_WEBHOOK_URL } from './constants.js'; // Import constanta pentru paleți
+import { GET_PALLETS_WEBHOOK_URL } from './constants.js'; 
 import { 
     loadTabData, 
     handleProductSave, 
@@ -75,8 +75,12 @@ function performFinancialCalculations(commandId, products, palletsData) {
     let totalQty = 0;
 
     for (const p of products) {
-        const qty = (p.bncondition || 0) + (p.vgcondition || 0) + (p.gcondition || 0);
-        if (qty <= 0) continue; // Ignorăm produsele nerecepționate
+        // MODIFICARE: Calculăm explicit Total - Broken
+        // p.found conține deja suma (bn + vg + g + broken), dar îl recalculăm explicit pentru siguranță
+        const totalReceived = (p.bncondition || 0) + (p.vgcondition || 0) + (p.gcondition || 0) + (p.broken || 0);
+        const qty = totalReceived - (p.broken || 0);
+
+        if (qty <= 0) continue; // Ignorăm produsele care după scăderea broken ajung la 0 sau negativ
 
         const details = AppState.getProductDetails(p.asin) || {};
         const roData = details.other_versions?.['romanian'] || {};
@@ -129,7 +133,7 @@ function performFinancialCalculations(commandId, products, palletsData) {
         const pal = palletMap[p.manifestSku];
         
         if (pal) {
-            // Logica AppsScript: procent = Pret Produs / Total Vanzare Palet
+            // Procent din palet bazat pe valoarea de vânzare
             if (pal.totalSales > 0 && p.price > 0) {
                 percent = p.price / pal.totalSales;
             }
@@ -144,7 +148,7 @@ function performFinancialCalculations(commandId, products, palletsData) {
         }
 
         calculatedResults[p.uniqueId] = {
-            percentDisplay: parseFloat(percent.toFixed(2)), // Formatul cerut: 0.xx
+            percentDisplay: parseFloat(percent.toFixed(2)), 
             unitCost: unitCost,
             totalCost: totalCost
         };
@@ -298,11 +302,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                     return;
                 }
 
-                // Luăm datele necesare
                 const command = AppState.getCommands().find(c => c.id === commandId);
-                // Trebuie să luăm paleții din nou (sau să îi avem undeva). 
-                // Cel mai sigur e să facem fetch din nou sau să îi stocăm în state când selectăm comanda.
-                // Pentru simplitate, îi luăm din nou:
                 actionButton.disabled = true;
                 actionButton.textContent = 'Se calculează...';
                 
@@ -311,25 +311,20 @@ document.addEventListener('DOMContentLoaded', async () => {
                     const calculatedData = performFinancialCalculations(commandId, command.products, palletsData);
                     
                     if (calculatedData) {
-                        // Salvăm în state
                         if (!state.financialCalculations) state.financialCalculations = {};
                         state.financialCalculations[commandId] = calculatedData;
                         
-                        // Re-randăm tabelul cu datele noi
                         const detailsContainer = document.getElementById('financiar-details-container');
                         
-                        // Reconstituim parametrii pentru templates.financiarDetails
                         const financialDataList = AppState.getFinancialData();
                         let matchedFinancial = financialDataList.find(item => item.orderid === commandId) || { orderid: commandId };
-                        // Updatăm matchedFinancial cu valorile din input-urile curente pentru a nu le pierde la re-render
+                        
                          matchedFinancial.currency = document.getElementById('financiar-moneda').value;
                          matchedFinancial.exchangerate = document.getElementById('financiar-rata-schimb').value;
                          matchedFinancial.transportcost = document.getElementById('financiar-cost-transport').value;
                         
-                        // Avem nevoie de detailsMap din nou? Da.
-                        // Optimizare: detailsMap este deja în cache-ul AppState, dar templates vrea obiectul map.
                         const asins = command.products.map(p => p.asin);
-                        const detailsMap = await fetchProductDetailsInBulk(asins); // Ia din cache dacă există
+                        const detailsMap = await fetchProductDetailsInBulk(asins);
                         
                         detailsContainer.innerHTML = templates.financiarDetails(command, matchedFinancial, detailsMap, palletsData, calculatedData);
                         alert("Calcule efectuate cu succes!");
@@ -342,7 +337,6 @@ document.addEventListener('DOMContentLoaded', async () => {
                     actionButton.innerHTML = '<span class="material-icons text-sm">calculate</span><span>Rulează Calcule</span>';
                 }
             }
-            // ----------------------------------------
 
             if (action === 'generate-nir') {
                 if (!state.currentCommandId) {
@@ -538,13 +532,13 @@ document.addEventListener('DOMContentLoaded', async () => {
             const detailsContainer = document.getElementById('financiar-details-container');
             const saveBtn = document.getElementById('save-financial-btn');
             const nirBtn = document.getElementById('generate-nir-btn');
-            const runCalcBtn = document.getElementById('run-calculations-btn'); // Buton nou
+            const runCalcBtn = document.getElementById('run-calculations-btn');
             
             if (!detailsContainer) return;
 
             if (saveBtn) saveBtn.disabled = !selectedCommandId;
             if (nirBtn) nirBtn.disabled = !selectedCommandId;
-            if (runCalcBtn) runCalcBtn.disabled = !selectedCommandId; // Activare buton nou
+            if (runCalcBtn) runCalcBtn.disabled = !selectedCommandId;
 
             if (!selectedCommandId) {
                 detailsContainer.innerHTML = templates.financiarDetails(null, null, null, null);
@@ -568,7 +562,6 @@ document.addEventListener('DOMContentLoaded', async () => {
             const asins = commandData.products.map(p => p.asin);
             const detailsMap = await fetchProductDetailsInBulk(asins);
 
-            // --- NOU: Preluăm datele calculate din state dacă există ---
             const calculatedData = state.financialCalculations ? state.financialCalculations[selectedCommandId] : null;
 
             detailsContainer.innerHTML = templates.financiarDetails(commandData, matchedFinancial, detailsMap, palletsData, calculatedData);
