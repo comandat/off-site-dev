@@ -41,9 +41,9 @@ async function fetchPalletsData(commandId) {
     }
 }
 
-// --- LOGICA DE CALCUL FINANCIAR ---
+// --- LOGICA DE CALCUL FINANCIAR REVIZUITĂ (STRICTĂ) ---
 function performFinancialCalculations(commandId, products, palletsData) {
-    // 1. Citim și Validăm Cursul Valutar din DOM
+    // 1. Preluare input-uri financiare
     const currencyEl = document.getElementById('financiar-moneda');
     const rateEl = document.getElementById('financiar-rata-schimb');
     const transportEl = document.getElementById('financiar-cost-transport');
@@ -51,36 +51,40 @@ function performFinancialCalculations(commandId, products, palletsData) {
     const currency = currencyEl ? currencyEl.value : 'RON';
     let exchangeRate = 1;
 
+    // Validare curs valutar
     if (currency !== 'RON') {
         const rawRate = rateEl ? parseFloat(rateEl.value) : 0;
         if (!rawRate || rawRate <= 0 || rawRate === 1) {
-             alert("EROARE: Cursul valutar din celula 'Rată de Schimb' este invalid (gol, 0, sau 1) pentru o conversie. Vă rugăm introduceți un curs corect și rulați din nou calculele.");
+             alert("EROARE: Cursul valutar este invalid. Introduceți un curs corect.");
              return null;
         }
         exchangeRate = rawRate;
     }
 
-    // 2. Mapare Paleți și Calcul Costuri
-    const palletMap = {}; // Key: manifestsku
+    // 2. Mapare Costuri Paleți (Strict pe baza ManifestSKU)
+    const palletMap = {}; 
     palletsData.forEach(p => {
-        const cost = parseFloat(p.costwithoutvat || 0) * exchangeRate; // Conversie în RON
+        // Convertim costul paletului în RON
+        const cost = parseFloat(p.costwithoutvat || 0) * exchangeRate; 
         if(p.manifestsku) {
              palletMap[p.manifestsku] = { cost: cost, totalSales: 0 };
         }
     });
 
-    // 3. Verificare erori produse și Calcul Total Vânzări pe Palet
+    // 3. Calculăm Total Vânzări per Palet (pentru a stabili ponderea fiecărui produs)
+    //    și Total Cantitate Așteptată (pentru transport)
+    let totalExpectedQty = 0;
     const validProducts = [];
     let hasCriticalErrors = false;
-    let totalQty = 0;
 
     for (const p of products) {
-        // MODIFICARE: Calculăm explicit Total - Broken
-        // p.found conține deja suma (bn + vg + g + broken), dar îl recalculăm explicit pentru siguranță
+        totalExpectedQty += (p.expected || 0); // Folosit la transport
+
+        // FORMULA CANTITATE: (Bun + VG + G + Broken) - Broken = Bun + VG + G
         const totalReceived = (p.bncondition || 0) + (p.vgcondition || 0) + (p.gcondition || 0) + (p.broken || 0);
         const qty = totalReceived - (p.broken || 0);
 
-        if (qty <= 0) continue; // Ignorăm produsele care după scăderea broken ajung la 0 sau negativ
+        if (qty <= 0) continue; // Ignorăm ce nu s-a vândut
 
         const details = AppState.getProductDetails(p.asin) || {};
         const roData = details.other_versions?.['romanian'] || {};
@@ -88,41 +92,34 @@ function performFinancialCalculations(commandId, products, palletsData) {
         const price = parseFloat(details.price) || 0;
         const manifestSku = p.manifestsku;
 
-        // Verificări erori blocante
-        if (!manifestSku || !title || title === "N/A" || title.length < 10 || price <= 0) {
-            hasCriticalErrors = true;
+        // Validări
+        if (!manifestSku || price <= 0) {
+            hasCriticalErrors = true; 
             break; 
         }
 
+        // Adunăm valoarea de vânzare la paletul corespunzător
         if (palletMap[manifestSku]) {
             palletMap[manifestSku].totalSales += (price * qty);
         }
         
         validProducts.push({ ...p, price, qty, manifestSku });
-        totalQty += qty;
     }
 
     if (hasCriticalErrors) {
-        alert("Calculele nu pot fi rulate deoarece există produse cu erori (Titlu lipsă/scurt, Preț 0 sau ManifestSKU lipsă). Verificați tabelul și corectați erorile.");
+        alert("Există produse cu erori (Preț 0 sau ManifestSKU lipsă). Corectați înainte de calcul.");
         return null;
     }
 
-    // 4. Calcul Costuri Adiționale (Transport + Paleți Zero Vânzare)
-    let transportCost = (parseFloat(transportEl ? transportEl.value : 0) || 0) * exchangeRate;
-    let zeroSalesPalletCost = 0;
-
-    Object.values(palletMap).forEach(pal => {
-        if (pal.totalSales === 0) {
-            zeroSalesPalletCost += pal.cost;
-        }
-    });
-
-    let extraCostPerProduct = 0;
-    if (totalQty > 0) {
-        extraCostPerProduct = (transportCost + zeroSalesPalletCost) / totalQty;
+    // 4. Calcul Cost Transport Unitar
+    // Îl distribuim la toată marfa din camion (Expected) pentru a fi un cost mic și stabil.
+    let transportCostTotal = (parseFloat(transportEl ? transportEl.value : 0) || 0) * exchangeRate;
+    let transportPerUnit = 0;
+    if (totalExpectedQty > 0) {
+        transportPerUnit = transportCostTotal / totalExpectedQty;
     }
 
-    // 5. Calcul Final per Produs
+    // 5. Calcul Final per Produs (FĂRĂ REDISTRIBUIRE PALEȚI MORȚI)
     const calculatedResults = {};
 
     validProducts.forEach(p => {
@@ -132,23 +129,29 @@ function performFinancialCalculations(commandId, products, palletsData) {
 
         const pal = palletMap[p.manifestSku];
         
-        if (pal) {
-            // Procent din palet bazat pe valoarea de vânzare
-            if (pal.totalSales > 0 && p.price > 0) {
-                percent = p.price / pal.totalSales;
-            }
+        if (pal && pal.totalSales > 0) {
+            // PASUL A: Cât reprezintă prețul acestui produs din vânzările totale ale paletului?
+            // Ex: Produs 65 RON / Vânzări Palet 3000 RON = 0.021 (2.1%)
+            percent = p.price / pal.totalSales;
             
-            const initialUnitCost = percent * pal.cost;
-            unitCost = initialUnitCost + extraCostPerProduct;
+            // PASUL B: Aplicăm procentul la costul de achiziție al paletului
+            // Ex: 0.021 * Cost Palet 456 RON = ~9.8 RON
+            const costFromPallet = percent * pal.cost;
+            
+            // PASUL C: Adăugăm transportul (ex: 0.5 RON)
+            // Cost Unitar = 9.8 + 0.5 = 10.3 RON (Nu 107 RON!)
+            unitCost = costFromPallet + transportPerUnit;
+            
+            // PASUL D: Înmulțim cu cantitatea
             totalCost = unitCost * p.qty;
         } else {
-             // Fallback
-             unitCost = extraCostPerProduct;
+             // Fallback: Dacă nu găsim paletul, punem doar transportul (ca să nu iasă 0 sau eroare imensă)
+             unitCost = transportPerUnit;
              totalCost = unitCost * p.qty;
         }
 
         calculatedResults[p.uniqueId] = {
-            percentDisplay: parseFloat(percent.toFixed(2)), 
+            percentDisplay: parseFloat(percent.toFixed(4)), 
             unitCost: unitCost,
             totalCost: totalCost
         };
