@@ -3,7 +3,8 @@ import {
     N8N_UPLOAD_WEBHOOK_URL, 
     READY_TO_LIST_WEBHOOK_URL, 
     ASIN_UPDATE_WEBHOOK_URL,
-    SAVE_FINANCIAL_WEBHOOK_URL 
+    SAVE_FINANCIAL_WEBHOOK_URL,
+    GENERATE_NIR_WEBHOOK_URL 
 } from './constants.js';
 import { fetchDataAndSyncState, AppState } from './data.js';
 
@@ -160,14 +161,13 @@ export async function handleAsinUpdate(actionButton) {
     }
 }
 
-// --- NOU: Salvare Date Financiare ---
+// --- Salvare Date Financiare ---
 export async function saveFinancialDetails(payload, buttonElement) {
     const originalHTML = buttonElement.innerHTML;
     buttonElement.disabled = true;
     buttonElement.innerHTML = '<div class="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin mx-auto"></div>';
 
     try {
-        // Folosim POST conform discuției
         const response = await fetch(SAVE_FINANCIAL_WEBHOOK_URL, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -179,26 +179,21 @@ export async function saveFinancialDetails(payload, buttonElement) {
             throw new Error(`Eroare HTTP: ${response.status}. ${errorText}`);
         }
 
-        // După salvare reușită, actualizăm AppState LOCAL pentru a reflecta modificările
-        // fără a face un nou request GET.
+        // Actualizăm cache-ul local
         const currentData = AppState.getFinancialData();
-        
         let found = false;
         const updatedData = currentData.map(item => {
             if (item.orderid === payload.orderid) {
                 found = true;
-                // Îmbinăm datele existente cu cele noi salvate
                 return { ...item, ...payload };
             }
             return item;
         });
 
-        // Dacă cumva nu exista în lista locală (deși puțin probabil), îl adăugăm
         if (!found) {
             updatedData.push(payload);
         }
         
-        // Salvăm în cache-ul local (SessionStorage prin AppState)
         AppState.setFinancialData(updatedData);
 
         alert('Datele financiare au fost salvate cu succes!');
@@ -207,6 +202,119 @@ export async function saveFinancialDetails(payload, buttonElement) {
     } catch (error) {
         console.error('Eroare la salvarea datelor financiare:', error);
         alert(`Eroare la salvare: ${error.message}`);
+        return false;
+    } finally {
+        buttonElement.disabled = false;
+        buttonElement.innerHTML = originalHTML;
+    }
+}
+
+// --- Generare NIR ---
+export async function generateNIR(commandId, buttonElement) {
+    const originalHTML = buttonElement.innerHTML;
+    buttonElement.disabled = true;
+    buttonElement.innerHTML = '<div class="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin mx-auto"></div>';
+
+    try {
+        const command = AppState.getCommands().find(c => c.id === commandId);
+        if (!command) throw new Error('Comanda nu a fost găsită în memorie.');
+
+        const products = command.products;
+        const productsPayload = [];
+        let hasErrors = false;
+
+        // Validăm produsele înainte de a trimite
+        for (const p of products) {
+            const receivedQty = (p.bncondition || 0) + (p.vgcondition || 0) + (p.gcondition || 0);
+            
+            // Ignorăm produsele care nu au fost recepționate (cantitate 0)
+            if (receivedQty <= 0) continue;
+
+            const details = AppState.getProductDetails(p.asin) || {};
+            const roData = details.other_versions?.['romanian'] || {};
+            const title = (roData.title || '').trim();
+            const price = parseFloat(details.price) || 0;
+            const manifestSku = p.manifestsku || '';
+
+            // Criterii de eroare:
+            // 1. Lipsă ManifestSKU
+            // 2. Titlu RO lipsă, "N/A" sau prea scurt
+            // 3. Preț <= 0
+            if (!manifestSku || !title || title === "N/A" || title.length < 10 || price <= 0) {
+                hasErrors = true;
+                console.warn(`Produs cu eroare: ${p.asin}`, { manifestSku, title, price });
+                break; // Ne oprim la prima eroare
+            }
+
+            productsPayload.push({
+                asin: p.asin,
+                manifestSku: manifestSku,
+                title: title,
+                price: price,
+                quantity: receivedQty,
+                uniqueId: p.uniqueId
+            });
+        }
+
+        if (hasErrors) {
+            alert("Nu se poate genera NIR-ul!\n\nExistă produse recepționate care au erori (ManifestSKU lipsă, Titlu RO invalid/scurt sau Preț 0).\n\nVerificați tabelul pentru rândurile marcate cu roșu.");
+            return false;
+        }
+
+        if (productsPayload.length === 0) {
+            alert("Nu există produse recepționate (cantitate > 0) pentru a genera NIR.");
+            return false;
+        }
+
+        const payload = {
+            commandId: commandId,
+            products: productsPayload
+        };
+
+        const response = await fetch(GENERATE_NIR_WEBHOOK_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`Eroare HTTP: ${response.status}. ${errorText}`);
+        }
+
+        // Verificăm tipul răspunsului. Dacă e JSON (probabil eroare sau link), tratăm corespunzător.
+        // Dacă e Blob (PDF), îl descărcăm.
+        const contentType = response.headers.get('content-type');
+        if (contentType && contentType.includes('application/json')) {
+             const jsonRes = await response.json();
+             if(jsonRes.status === 'error') {
+                 throw new Error(jsonRes.message || 'Eroare necunoscută la generare.');
+             }
+             // Dacă serverul returnează un URL
+             if (jsonRes.url) {
+                 window.open(jsonRes.url, '_blank');
+                 alert('NIR generat cu succes!');
+                 return true;
+             }
+        }
+
+        // Fallback: Presupunem că e fișier (blob)
+        const blob = await response.blob();
+        const downloadUrl = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = downloadUrl;
+        a.download = `NIR_${commandId}.pdf`; 
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        window.URL.revokeObjectURL(downloadUrl);
+
+        alert('NIR generat și descărcat cu succes!');
+        return true;
+
+    } catch (error) {
+        console.error('Eroare la generarea NIR:', error);
+        alert(`Eroare: ${error.message}`);
         return false;
     } finally {
         buttonElement.disabled = false;
