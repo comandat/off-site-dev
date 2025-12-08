@@ -1,5 +1,5 @@
 // scripts/viewRenderer.js
-import { AppState, fetchDataAndSyncState, fetchProductDetailsInBulk, fetchFinancialData } from './data.js'; // Am adaugat fetchFinancialData
+import { AppState, fetchDataAndSyncState, fetchProductDetailsInBulk, fetchFinancialData } from './data.js'; 
 import { state } from './state.js';
 import { fuzzySearch } from './utils.js';
 import { templates, renderImageGallery, initializeSortable } from './templates.js';
@@ -18,7 +18,6 @@ export function setActiveView(viewId) {
 
 export async function renderView(viewId, context = {}) {
     
-    // Stochează vederea anterioară
     if (viewId !== state.currentView) {
         state.previousView = state.currentView;
     }
@@ -42,24 +41,19 @@ export async function renderView(viewId, context = {}) {
                 // 1. Sincronizăm lista de comenzi
                 await fetchDataAndSyncState();
                 
-                // 2. Verificăm dacă avem datele financiare în cache (SessionStorage)
+                // 2. Verificăm dacă avem datele financiare în cache
                 const storedFinancialData = AppState.getFinancialData();
                 
-                // Dacă nu avem date (lungime 0), le luăm de la server (doar prima dată pe sesiune)
                 if (!storedFinancialData || storedFinancialData.length === 0) {
                     mainContent.innerHTML = `<div class="p-8 text-center text-gray-500">Se preiau datele financiare...</div>`;
                     await fetchFinancialData();
                 }
 
-                // 3. Randăm pagina (dropdown-ul va fi populat cu comenzile)
+                // 3. Randăm shell-ul (dropdown + container gol pt detalii)
                 html = templates.financiar(AppState.getCommands());
                 break;
 
-            case 'exportDate':
-                await fetchDataAndSyncState(); 
-                html = templates.exportDate(AppState.getCommands());
-                break;
-             case 'paleti':
+            case 'paleti':
                 const commandForPaleti = AppState.getCommands().find(c => c.id === context.commandId);
                 if (commandForPaleti) {
                     mainContent.innerHTML = `
@@ -129,18 +123,10 @@ export async function renderView(viewId, context = {}) {
                 }
 
                 if (foundProduct) {
-                    console.log(`%cFolosind uniqueId-ul ${context.productId}, am găsit următorul obiect 'product' în AppState:`, "color: green; font-weight: bold;", JSON.parse(JSON.stringify(foundProduct)));
-                    console.log(`%cSe va deschide pagina de detalii pentru ASIN: ${foundProduct.asin}`, "color: green; font-weight: bold;");
-                } else {
-                    console.error(`EROARE: Nu am găsit niciun produs cu uniqueId-ul ${context.productId} în comandă ID ${context.commandId}.`);
-                }
-
-                if (foundProduct) {
                     const detailsMap = await fetchProductDetailsInBulk([foundProduct.asin]);
                     const productDetails = detailsMap[foundProduct.asin];
 
                     if (!productDetails) {
-                         console.error(`Eroare: Nu s-au putut prelua detalii pentru ASIN ${foundProduct.asin}`);
                          html = `<div class="p-6 text-red-500">Eroare: Nu s-au putut încărca detaliile pentru ASIN ${foundProduct.asin}. Verificați consola.</div>`;
                          break; 
                     }
@@ -168,7 +154,6 @@ export async function renderView(viewId, context = {}) {
     }
 
     if (typeof html !== 'string') {
-        console.error(`renderView: Variabila 'html' nu este un string valid (este ${typeof html}). Folosind fallback.`);
         html = '<div class="p-6 text-red-500">Eroare internă la generarea conținutului.</div>';
     }
 
