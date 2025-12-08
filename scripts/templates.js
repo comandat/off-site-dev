@@ -2,7 +2,8 @@
 import { state } from './state.js';
 import { languages, languageNameToCodeMap } from './constants.js';
 
-// ... (PĂSTREAZĂ initializeSortable, renderCompetitionStars, renderImageGallery NEMODIFICATE) ...
+// --- HELPERS PENTRU TEMPLATES ---
+
 export function initializeSortable() {
     const thumbsContainer = document.getElementById('thumbnails-container');
     if (state.sortableInstance) {
@@ -133,13 +134,15 @@ export const templates = {
         </div>
     `,
 
-    // --- MODIFICARE: Acceptă calculatedData ---
     financiarProductTable: (products, detailsMap, commandId, calculatedData = null) => {
         if (!products || products.length === 0) return '';
 
         const processedProducts = products.map(p => {
-            const receivedQty = (p.bncondition || 0) + (p.vgcondition || 0) + (p.gcondition || 0);
-            if (receivedQty <= 0) return null;
+            // Formula: Total Recepționat - Broken
+            const totalReceived = (p.bncondition || 0) + (p.vgcondition || 0) + (p.gcondition || 0) + (p.broken || 0);
+            const displayQty = totalReceived - (p.broken || 0);
+
+            if (displayQty <= 0) return null;
 
             const details = detailsMap[p.asin] || {};
             const roData = details.other_versions?.['romanian'] || {};
@@ -154,7 +157,7 @@ export const templates = {
             if (!title || title === "N/A" || title.length < 10) errors.push("Titlu RO lipsă sau invalid");
             if (price <= 0) errors.push("Preț estimat <= 0");
 
-            // --- DATE CALCULATE ---
+            // Date calculate
             const calc = calculatedData ? calculatedData[p.uniqueId] : null;
 
             return {
@@ -162,11 +165,10 @@ export const templates = {
                 displayTitle: title || 'N/A',
                 displayImage: mainImage,
                 displayPrice: price,
-                displayQty: receivedQty,
+                displayQty: displayQty,
                 manifestSku: manifestSku,
                 errors: errors,
                 hasErrors: errors.length > 0,
-                // Adăugăm datele calculate (dacă există)
                 calcPercent: calc ? calc.percentDisplay : '-',
                 calcUnitCost: calc ? calc.unitCost.toFixed(2) : '-',
                 calcTotalCost: calc ? calc.totalCost.toFixed(2) : '-'
@@ -236,7 +238,6 @@ export const templates = {
                     ${p.displayQty}
                 </td>`;
 
-            // --- COLOANE NOI CALCULATE ---
             const colPercent = `
                 <td class="px-4 py-4 whitespace-nowrap text-sm text-gray-600 text-center bg-yellow-50">
                     ${p.calcPercent !== '-' ? p.calcPercent : '-'}
@@ -282,7 +283,6 @@ export const templates = {
         `;
     },
 
-    // --- MODIFICARE: Acceptă calculatedData ---
     financiarDetails: (commandData, financialData, detailsMap, palletsData, calculatedData = null) => {
         if (!commandData) {
             return '<p class="text-gray-500 text-center col-span-full">Selectați o comandă pentru a vedea detaliile.</p>';
@@ -382,7 +382,6 @@ export const templates = {
              palletsHTML = `<div class="col-span-full mt-8 mb-4"><p class="text-sm text-gray-500 italic">Nu există date despre paleți asociate acestei comenzi în sistemul de costuri.</p></div>`;
         }
 
-        // Pasăm calculatedData mai departe
         const tableHTML = templates.financiarProductTable(commandData.products, detailsMap || {}, commandData.id, calculatedData);
 
         return `
@@ -441,7 +440,7 @@ export const templates = {
         </div>
         `;
     },
-    // ... RESTUL DE TEMPLATE-URI RĂMÂN NEMODIFICATE ...
+
     comenzi: (commands) => {
         const commandsHTML = commands.length > 0
             ? commands.map(cmd => {
@@ -476,7 +475,9 @@ export const templates = {
             : `<p class="col-span-full text-gray-500">Nu există comenzi de afișat.</p>`;
         return `<div class="p-6 sm:p-8"><h2 class="text-3xl font-bold text-gray-800 mb-6">Panou de Comenzi</h2><div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">${commandsHTML}</div></div>`;
     },
+
     import: () => `<div class="p-6 sm:p-8"><h2 class="text-3xl font-bold text-gray-800 mb-6">Import Comandă Nouă</h2><div class="max-w-md bg-white p-8 rounded-lg shadow-md"><form id="upload-form"><div class="mb-5"><label for="zip-file" class="block mb-2 text-sm font-medium">Manifest (.zip):</label><input type="file" id="zip-file" name="zipFile" accept=".zip" required class="w-full text-sm border-gray-300 rounded-lg cursor-pointer bg-gray-50"></div><div class="mb-6"><label for="pdf-file" class="block mb-2 text-sm font-medium">Factura (.pdf):</label><input type="file" id="pdf-file" name="pdfFile" accept=".pdf" required class="w-full text-sm border-gray-300 rounded-lg cursor-pointer bg-gray-50"></div><p id="upload-status" class="mt-4 text-center text-sm font-medium min-h-[20px]"></p><button id="upload-button" type="submit" class="w-full mt-2 flex justify-center items-center px-4 py-3 text-lg font-bold text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:bg-blue-300"><span class="button-text">Trimite fișierele 🚀</span><div class="button-loader hidden w-6 h-6 border-4 border-white border-t-transparent rounded-full animate-spin"></div></button></form></div></div>`,
+
     paleti: (command, details) => {
         const paleti = {};
         command.products.forEach(p => {
@@ -522,6 +523,7 @@ export const templates = {
         </header>
         <div class="p-6 sm:p-8"><div class="flex flex-wrap gap-4">${noResultsHTML}</div></div>`;
     },
+
     produse: (command, details, manifestSKU) => {
          let productsToShow = command.products.filter(p => {
              const sku = p.manifestsku || 'No ManifestSKU';
@@ -563,6 +565,7 @@ export const templates = {
         </header>
         <div class="p-4 space-y-2">${noResultsHTML}</div>`;
     },
+
     competition: (competitionData) => {
         let cardsHTML = '';
         for (let i = 1; i <= 5; i++) {
@@ -620,6 +623,7 @@ export const templates = {
 
         return `<div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">${cardsHTML}</div>`;
     },
+
     produsDetaliu: (product, details, commandId) => {
         // --- FILTRARE BUTOANE TRADUCERE ---
         const otherVersions = details.other_versions || {};
