@@ -1,5 +1,5 @@
 // scripts/data.js
-import { GET_FINANCIAL_WEBHOOK_URL } from './constants.js';
+import { GET_FINANCIAL_WEBHOOK_URL, GET_PALLETS_WEBHOOK_URL } from './constants.js';
 
 // --- CONFIGURARE WEBHOOKS ---
 const DATA_FETCH_URL = 'https://automatizare.comandat.ro/webhook/5a447557-8d52-463e-8a26-5902ccee8177';
@@ -134,12 +134,10 @@ export async function fetchFinancialData() {
 
         const data = await response.json();
         
-        // --- CORECTIE PENTRU OBIECT UNIC vs ARRAY ---
         if (Array.isArray(data)) {
             AppState.setFinancialData(data);
             return true;
         } else if (data && typeof data === 'object' && (data.orderid || Object.keys(data).length > 0)) {
-            console.warn("API-ul a returnat un singur obiect. Îl convertim în listă.");
             AppState.setFinancialData([data]);
             return true;
         } else {
@@ -149,5 +147,30 @@ export async function fetchFinancialData() {
     } catch (error) {
         console.error('Eroare la preluarea datelor financiare:', error);
         return false;
+    }
+}
+
+// --- NOU: Fetch Pallets Data ---
+export async function fetchPalletsData(orderId) {
+    if (!orderId) return [];
+    try {
+        // Presupunem POST body { orderId } conform convenției proiectului
+        const response = await fetch(GET_PALLETS_WEBHOOK_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ orderId: orderId })
+        });
+        
+        if (!response.ok) {
+            console.error(`Fetch pallets error: ${response.status}`);
+            return [];
+        }
+        
+        const data = await response.json();
+        // Presupunem că webhook-ul returnează o listă sau un obiect cu proprietatea data
+        return Array.isArray(data) ? data : (data.data || []);
+    } catch (error) {
+        console.error("Eroare fetch pallets:", error);
+        return [];
     }
 }
