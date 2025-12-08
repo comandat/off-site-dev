@@ -265,7 +265,7 @@ export const templates = {
         `;
     },
 
-    financiarDetails: (commandData, financialData, detailsMap) => {
+    financiarDetails: (commandData, financialData, detailsMap, palletsData) => {
         if (!commandData) {
             return '<p class="text-gray-500 text-center col-span-full">Selectați o comandă pentru a vedea detaliile.</p>';
         }
@@ -312,14 +312,42 @@ export const templates = {
             
             ${templates.financiarInput('financiar-moneda', 'Monedă', data.currency, false, 'text')}
             ${templates.financiarInput('financiar-rata-schimb', 'Rată de Schimb (opțional)', data.rate, false, 'number')}
-
-            <div class="col-span-full mt-4 flex justify-end border-t pt-4">
-                <button id="save-financial-btn" data-action="save-financial" class="px-6 py-3 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2 shadow-lg">
-                    <span class="material-icons">save</span>
-                    Salvează Datele Financiare
-                </button>
-            </div>
         `;
+
+        // --- SECTIUNE PALETI ---
+        let palletsHTML = '';
+        if (palletsData && palletsData.length > 0) {
+            const palletsRows = palletsData.map(p => `
+                <tr class="hover:bg-gray-50">
+                    <td class="px-4 py-2 text-sm text-gray-900 font-medium">${p.palletId || 'N/A'}</td>
+                    <td class="px-4 py-2 text-sm text-gray-700">${p.productCount || 0}</td>
+                    <td class="px-4 py-2 text-sm text-gray-900 text-right font-bold">${parseFloat(p.cost || 0).toFixed(2)} RON</td>
+                </tr>
+            `).join('');
+
+            palletsHTML = `
+                <div class="col-span-full mt-8 mb-4">
+                    <h3 class="text-lg font-bold text-gray-800 mb-4">Detalii Paleți & Costuri</h3>
+                    <div class="overflow-hidden shadow ring-1 ring-black ring-opacity-5 md:rounded-lg">
+                        <table class="min-w-full divide-y divide-gray-300">
+                            <thead class="bg-gray-50">
+                                <tr>
+                                    <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">ID Palet</th>
+                                    <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Nr. Produse</th>
+                                    <th class="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">Cost Alocat</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-gray-200 bg-white">
+                                ${palletsRows}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            `;
+        } else if (palletsData) {
+             palletsHTML = `<div class="col-span-full mt-8 mb-4"><p class="text-sm text-gray-500 italic">Nu există date despre paleți pentru această comandă.</p></div>`;
+        }
+        // -----------------------
 
         const tableHTML = templates.financiarProductTable(commandData.products, detailsMap || {}, commandData.id);
 
@@ -327,6 +355,7 @@ export const templates = {
             <div class="col-span-full grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 ${formHTML}
             </div>
+            ${palletsHTML}
             <div class="col-span-full">
                 ${tableHTML}
             </div>
@@ -345,68 +374,36 @@ export const templates = {
                 Panou Financiar
             </h2>
             
-            <div class="max-w-xl mb-6">
-                <label for="financiar-command-select" class="block text-sm font-medium text-gray-700 mb-2">Selectați Comanda</label>
-                <select id="financiar-command-select" class="w-full p-2 border border-gray-300 rounded-md shadow-sm bg-white focus:ring-blue-500 focus:border-blue-500">
-                    <option value="">Alegeți o comandă...</option>
-                    ${optionsHTML}
-                </select>
+            <div class="flex flex-col md:flex-row md:items-end gap-4 mb-6 border-b pb-6">
+                <div class="flex-1 w-full md:max-w-xl">
+                    <label for="financiar-command-select" class="block text-sm font-medium text-gray-700 mb-2">Selectați Comanda</label>
+                    <select id="financiar-command-select" class="w-full p-2 border border-gray-300 rounded-md shadow-sm bg-white focus:ring-blue-500 focus:border-blue-500">
+                        <option value="">Alegeți o comandă...</option>
+                        ${optionsHTML}
+                    </select>
+                </div>
+
+                <div class="flex gap-2">
+                     <button id="save-financial-btn" data-action="save-financial" class="px-4 py-2 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2 shadow-sm disabled:bg-gray-400">
+                        <span class="material-icons text-sm">save</span>
+                        <span>Salvează Date</span>
+                    </button>
+
+                    <button id="generate-nir-btn" data-action="generate-nir" class="px-4 py-2 bg-green-600 text-white font-bold rounded-lg hover:bg-green-700 transition-colors flex items-center gap-2 shadow-sm disabled:bg-gray-400 disabled:cursor-not-allowed">
+                        <span class="material-icons text-sm">receipt_long</span>
+                        <span>Generează NIR</span>
+                    </button>
+                </div>
             </div>
             
             <div id="financiar-details-container" class="p-6 bg-white rounded-lg shadow-md min-h-[400px]">
-                ${templates.financiarDetails(null, null, null)}
+                ${templates.financiarDetails(null, null, null, null)}
             </div>
         </div>
         `;
     },
 
-    exportDate: (commands) => {
-        const optionsHTML = commands.map(cmd => 
-            `<option value="${cmd.id}">${cmd.name}</option>`
-        ).join('');
-
-        return `
-        <div class="p-6 sm:p-8">
-            <h2 class="text-3xl font-bold text-gray-800 mb-6">Export Date</h2>
-            
-            <div class="max-w-xl mb-8">
-                <label for="export-command-select" class="block text-sm font-medium text-gray-700 mb-2">Selectați Comanda</label>
-                <select id="export-command-select" class="w-full p-2 border border-gray-300 rounded-md shadow-sm bg-white">
-                    <option value="">Alegeți o comandă...</option>
-                    ${optionsHTML}
-                </select>
-            </div>
-            
-            <div id="export-actions-container" 
-                 class="p-6 bg-white rounded-lg shadow-md grid grid-cols-1 md:grid-cols-2 gap-6 hidden">
-                
-                <div class="col-span-1 p-4 border rounded-lg">
-                    <h3 class="text-lg font-semibold text-gray-700">Listare Preliminară</h3>
-                    <p class="text-sm text-gray-500 mt-2 mb-4">Generează un CSV cu produsele marcate "Gata de listat" (listingready=true), cu stoc '1' și datele din RO.</p>
-                    <button id="export-preliminar-btn" data-action="export-preliminar" class="w-full flex justify-center items-center px-4 py-2 text-sm font-bold text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:bg-gray-400">
-                        <span class="button-text">Generează Listare Preliminară</span>
-                        <div class="button-loader hidden w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                    </button>
-                </div>
-
-                <div class="col-span-1 p-4 border rounded-lg">
-                    <h3 class="text-lg font-semibold text-gray-700">Update cu Stoc Real</h3>
-                    <p class="text-sm text-gray-500 mt-2 mb-4">Generează un CSV (SKU, Stock) doar cu produsele verificate (listingready=true și verificationready=true) și stocul 'bncondition'.</p>
-                    <button id="export-stoc-real-btn" data-action="export-stoc-real" class="w-full flex justify-center items-center px-4 py-2 text-sm font-bold text-white bg-green-600 rounded-lg hover:bg-green-700 disabled:bg-gray-400">
-                        <span class="button-text">Generează Update Stoc Real</span>
-                        <div class="button-loader hidden w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                    </button>
-                </div>
-            </div>
-
-            <div id="export-placeholder" class="p-6 bg-white rounded-lg shadow-md">
-                 <p class="text-gray-500 text-center">Selectați o comandă pentru a vedea acțiunile de export.</p>
-            </div>
-
-            <div id="export-preview-container" class="mt-8"></div>
-        </div>
-        `;
-    },
+    // --- exportDate a fost eliminat ---
 
     comenzi: (commands) => {
         const commandsHTML = commands.length > 0
