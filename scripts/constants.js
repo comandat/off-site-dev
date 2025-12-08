@@ -13,6 +13,10 @@ export const IMAGE_TRANSLATION_WEBHOOK_URL = 'https://automatizare.comandat.ro/w
 export const GET_FINANCIAL_WEBHOOK_URL = 'https://automatizare.comandat.ro/webhook/get-financial';
 export const SAVE_FINANCIAL_WEBHOOK_URL = 'https://automatizare.comandat.ro/webhook/save-financial';
 
+// --- CONSTANTE NOI (NIR & PALETI) ---
+export const GENERATE_NIR_WEBHOOK_URL = 'https://automatizare.comandat.ro/webhook/generate-nir';
+export const GET_PALLETS_WEBHOOK_URL = 'https://automatizare.comandat.ro/webhook/get-pallets';
+
 export const languages = {
     'bg': 'Bulgarian', 'de': 'German', 'ro': 'Romanian', 'hu': 'Hungarian',
     'el': 'Greek', 'sq': 'Albanian', 'be': 'Belarusian', 'bs': 'Bosnian',
