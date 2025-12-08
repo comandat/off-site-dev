@@ -1,9 +1,11 @@
+// scripts/main.js
 import { state } from './state.js';
 import { renderView } from './viewRenderer.js';
 import { initGlobalListeners } from './lightbox.js';
-import { sendReadyToList, handleUploadSubmit, handleAsinUpdate, saveFinancialDetails } from './api.js'; 
+import { sendReadyToList, handleUploadSubmit, handleAsinUpdate, saveFinancialDetails, generateNIR } from './api.js'; 
 import { AppState, fetchDataAndSyncState, fetchProductDetailsInBulk } from './data.js';
 import { templates } from './templates.js';
+import { GET_PALLETS_WEBHOOK_URL } from './constants.js'; // Import constanta pentru paleți
 import { 
     loadTabData, 
     handleProductSave, 
@@ -16,12 +18,29 @@ import {
     handleImageTranslation,
     handleDescriptionRefresh
 } from './product-details.js';
-import { 
-    handleExportPreliminar, 
-    handleExportStocReal, 
-    convertToCSV, 
-    downloadCSV 
-} from './export.js';
+
+// --- FUNCȚIE HELPER PENTRU PALEȚI ---
+async function fetchPalletsData(commandId) {
+    try {
+        const response = await fetch(GET_PALLETS_WEBHOOK_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ commandId: commandId })
+        });
+        
+        if (!response.ok) {
+            console.error(`Eroare la preluarea paleților: ${response.status}`);
+            return [];
+        }
+        
+        const data = await response.json();
+        // Presupunem că webhook-ul returnează un array sau un obiect cu cheia 'pallets'
+        return Array.isArray(data) ? data : (data.pallets || []);
+    } catch (error) {
+        console.error("Eroare network paleți:", error);
+        return [];
+    }
+}
 
 document.addEventListener('DOMContentLoaded', async () => {
     const mainContent = document.getElementById('main-content');
@@ -159,6 +178,16 @@ document.addEventListener('DOMContentLoaded', async () => {
                 await saveFinancialDetails(payload, actionButton);
             }
 
+            // --- ACȚIUNE NOUĂ: GENERARE NIR ---
+            if (action === 'generate-nir') {
+                if (!state.currentCommandId) {
+                    alert('Selectați o comandă mai întâi.');
+                    return;
+                }
+                await generateNIR(state.currentCommandId, actionButton);
+            }
+            // -----------------------------------
+
             if (action === 'back-to-comenzi') {
                 state.currentCommandId = null;
                 state.currentManifestSKU = null;
@@ -174,20 +203,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             if (action === 'back-to-produse') {
                 state.currentProductId = null;
                 
-                if (state.previousView === 'exportDate') {
-                    await renderView('exportDate');
-                    const select = document.getElementById('export-command-select');
-                    if (select && state.currentCommandId) { 
-                        select.value = state.currentCommandId;
-                        select.dispatchEvent(new Event('change', { bubbles: true }));
-                        
-                        const prelimBtn = document.getElementById('export-preliminar-btn');
-                        if(prelimBtn) {
-                            await new Promise(resolve => setTimeout(resolve, 0));
-                            await handleExportPreliminar(state.currentCommandId, prelimBtn);
-                        }
-                    }
-                } else if (state.previousView === 'financiar') {
+                if (state.previousView === 'financiar') {
                     await renderView('financiar');
                     const select = document.getElementById('financiar-command-select');
                     if (select && state.currentCommandId) {
@@ -271,19 +287,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             if (action === 'save-product') {
                 const success = await handleProductSave(actionButton);
                 if (success) {
-                    if (state.previousView === 'exportDate') {
-                         await renderView('exportDate');
-                         const select = document.getElementById('export-command-select');
-                         if (select && state.currentCommandId) {
-                            select.value = state.currentCommandId;
-                            select.dispatchEvent(new Event('change', { bubbles: true }));
-                            const prelimBtn = document.getElementById('export-preliminar-btn');
-                            if(prelimBtn) {
-                                await new Promise(resolve => setTimeout(resolve, 0));
-                                await handleExportPreliminar(state.currentCommandId, prelimBtn);
-                            }
-                        }
-                    } else if (state.previousView === 'financiar') {
+                    if (state.previousView === 'financiar') {
                         await renderView('financiar');
                         const select = document.getElementById('financiar-command-select');
                         if (select && state.currentCommandId) {
@@ -314,32 +318,6 @@ document.addEventListener('DOMContentLoaded', async () => {
             
             if (['delete-image', 'add-image-url', 'copy-origin-images'].includes(action)) {
                 handleImageActions(action, actionButton);
-            }
-
-            if (action === 'export-preliminar') {
-                const commandId = document.getElementById('export-command-select')?.value;
-                if (commandId) {
-                    await handleExportPreliminar(commandId, actionButton);
-                } else {
-                    alert('Vă rugăm selectați o comandă.');
-                }
-            }
-            if (action === 'export-stoc-real') {
-                const commandId = document.getElementById('export-command-select')?.value;
-                 if (commandId) {
-                    handleExportStocReal(commandId, actionButton);
-                } else {
-                    alert('Vă rugăm selectați o comandă.');
-                }
-            }
-            if (action === 'download-preliminar') {
-                if (state.lastExportData && state.lastExportData.length > 0) {
-                    const csvString = convertToCSV(state.lastExportData);
-                    const commandId = document.getElementById('export-command-select')?.value || 'export';
-                    downloadCSV(csvString, `export_preliminar_${commandId.substring(0, 8)}.csv`);
-                } else {
-                    alert("Eroare: Nu există date de descărcat. Generați mai întâi lista.");
-                }
             }
         }
     });
@@ -394,14 +372,21 @@ document.addEventListener('DOMContentLoaded', async () => {
             state.currentCommandId = selectedCommandId; 
 
             const detailsContainer = document.getElementById('financiar-details-container');
+            const saveBtn = document.getElementById('save-financial-btn');
+            const nirBtn = document.getElementById('generate-nir-btn');
+            
             if (!detailsContainer) return;
 
+            // Resetăm butoanele
+            if (saveBtn) saveBtn.disabled = !selectedCommandId;
+            if (nirBtn) nirBtn.disabled = !selectedCommandId;
+
             if (!selectedCommandId) {
-                detailsContainer.innerHTML = templates.financiarDetails(null, null, null);
+                detailsContainer.innerHTML = templates.financiarDetails(null, null, null, null);
                 return;
             }
 
-            detailsContainer.innerHTML = '<div class="text-center p-8 text-gray-500">Se încarcă datele și produsele...</div>';
+            detailsContainer.innerHTML = '<div class="text-center p-8 text-gray-500">Se încarcă datele, produsele și paleții...</div>';
 
             const commandData = AppState.getCommands().find(c => c.id === selectedCommandId);
             
@@ -413,30 +398,14 @@ document.addEventListener('DOMContentLoaded', async () => {
                 matchedFinancial = { orderid: selectedCommandId };
             }
 
+            // --- FETCH PALEȚI ---
+            const palletsData = await fetchPalletsData(selectedCommandId);
+            // -------------------
+
             const asins = commandData.products.map(p => p.asin);
             const detailsMap = await fetchProductDetailsInBulk(asins);
 
-            detailsContainer.innerHTML = templates.financiarDetails(commandData, matchedFinancial, detailsMap);
-        }
-
-        if (event.target.id === 'export-command-select') {
-            const commandId = event.target.value;
-            state.currentCommandId = commandId || null; 
-            
-            const actionsContainer = document.getElementById('export-actions-container');
-            const placeholder = document.getElementById('export-placeholder');
-            const previewContainer = document.getElementById('export-preview-container');
-
-            if (previewContainer) previewContainer.innerHTML = '';
-            state.lastExportData = null; 
-
-            if (commandId) {
-                if (actionsContainer) actionsContainer.classList.remove('hidden');
-                if (placeholder) placeholder.classList.add('hidden');
-            } else {
-                if (actionsContainer) actionsContainer.classList.add('hidden');
-                if (placeholder) placeholder.classList.remove('hidden');
-            }
+            detailsContainer.innerHTML = templates.financiarDetails(commandData, matchedFinancial, detailsMap, palletsData);
         }
     });
 
@@ -458,19 +427,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     const lastView = state.currentView || 'comenzi';
     
-    if (lastView === 'exportDate' && state.currentCommandId) {
-        await renderView('exportDate');
-        const select = document.getElementById('export-command-select');
-        if (select) {
-            select.value = state.currentCommandId;
-            select.dispatchEvent(new Event('change', { bubbles: true }));
-            const prelimBtn = document.getElementById('export-preliminar-btn');
-            if (prelimBtn) {
-                await new Promise(resolve => setTimeout(resolve, 0));
-                await handleExportPreliminar(state.currentCommandId, prelimBtn);
-            }
-        }
-    } else if (lastView === 'financiar') {
+    if (lastView === 'financiar') {
         await renderView('financiar');
         if (state.currentCommandId) {
              const select = document.getElementById('financiar-command-select');
