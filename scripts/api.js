@@ -10,6 +10,15 @@ import { fetchDataAndSyncState, AppState, fetchProductDetailsInBulk } from './da
 import { state } from './state.js';
 
 /**
+ * Funcție helper pentru eliminarea diacriticelor.
+ * Transformă "șurubelniță" în "surubelnita".
+ */
+function removeDiacritics(str) {
+    if (!str) return "";
+    return str.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+}
+
+/**
  * Trimite starea "Gata de listat" pentru un produs sau o comandă întreagă.
  */
 export async function sendReadyToList(payload, buttonElement) {
@@ -236,14 +245,17 @@ export async function generateNIR(commandId, buttonElement) {
         // 2. Construire Date Tabel
         command.products.forEach(p => {
             const calcData = financials[p.uniqueId];
-            // Ignorăm produsele cu cost 0 sau negative
+            // Ignorăm produsele cu cost 0 sau negative (de ex. produse nelistabile sau necalculate)
             if (!calcData || calcData.totalCost <= 0.01) return;
 
             const unitCost = calcData.unitCost;
             const details = detailsMap[p.asin] || {};
-            const roTitle = (details.other_versions?.['romanian']?.title || details.title || "N/A").trim();
+            
+            // Preluăm titlul RO și ELIMINĂM DIACRITICELE
+            const rawTitle = (details.other_versions?.['romanian']?.title || details.title || "N/A").trim();
+            const roTitle = removeDiacritics(rawTitle);
 
-            // MODIFICARE: Definim sufixul pentru Cod Articol, nu pentru Denumire
+            // Definim sufixul pentru Cod Articol
             const conditions = [
                 { qty: p.bncondition, codeSuffix: "CN" }, // Ca Nou
                 { qty: p.vgcondition, codeSuffix: "FB" }, // Foarte Bun
@@ -260,7 +272,7 @@ export async function generateNIR(commandId, buttonElement) {
 
                     rows.push([
                         p.asin + cond.codeSuffix,   // Cod Articol + Sufix Stare (ex: B00...CN)
-                        roTitle,                    // Denumire Curată (Fără sufix)
+                        roTitle,                    // Denumire Curată (Fără sufix, Fără diacritice)
                         "buc",                      
                         cond.qty,                   
                         unitCost.toFixed(2),        
@@ -281,9 +293,9 @@ export async function generateNIR(commandId, buttonElement) {
         const doc = new jsPDF({ orientation: 'p', unit: 'mm', format: 'a4' });
 
         // --- SETĂRI GLOBALE FONT ---
-        // Folosim Helvetica standard peste tot pentru consistență
+        // Folosim Helvetica standard (nu suportă diacritice, de aceea le-am scos)
         doc.setFont("helvetica", "normal");
-        const textColor = 20; // Aproape negru pentru text standard
+        const textColor = 20; // Aproape negru
 
         // --- Header ---
         doc.setFontSize(10);
@@ -323,24 +335,24 @@ export async function generateNIR(commandId, buttonElement) {
             startY: 55,
             head: [['Cod Articol', 'Denumire', 'U.M.', 'Cant', 'Pret Unitar', 'Valoare', 'TVA (21%)']],
             body: rows,
-            theme: 'grid', // Folosim grid pentru linii clare
+            theme: 'grid', 
             styles: { 
-                font: "helvetica", // Font consistent și în tabel
+                font: "helvetica", 
                 fontSize: 9, 
                 cellPadding: 3,
-                textColor: [20, 20, 20], // Text închis la culoare (RGB aproape negru)
+                textColor: [20, 20, 20], 
                 overflow: 'linebreak', // Asigură wrap la textul lung
                 halign: 'center', // Aliniere la mijloc pentru TOATE celulele
                 valign: 'middle'
             },
             headStyles: { 
-                fillColor: [230, 230, 230], // Gri deschis pentru header
-                textColor: 0, // Negru complet pentru text header
+                fillColor: [230, 230, 230], // Gri deschis
+                textColor: 0, // Negru complet
                 fontStyle: 'bold',
                 halign: 'center'
             },
             columnStyles: {
-                0: { cellWidth: 35 }, // Cod (lărgit puțin pentru sufix)
+                0: { cellWidth: 35 }, // Cod (lărgit pentru sufix)
                 1: { cellWidth: 'auto' }, // Denumire (auto - va face wrap)
                 2: { cellWidth: 12 }, // UM
                 3: { cellWidth: 15 }, // Cant
@@ -349,7 +361,7 @@ export async function generateNIR(commandId, buttonElement) {
                 6: { cellWidth: 22 }  // TVA
             },
             footStyles: {
-                 halign: 'center', // Aliniere centru și pentru footer
+                 halign: 'center',
                  textColor: [20, 20, 20],
                  fontStyle: 'bold'
             },
@@ -368,7 +380,7 @@ export async function generateNIR(commandId, buttonElement) {
         // Aliniem la dreapta tabelului
         doc.text(`TOTAL GENERAL (Valoare + TVA): ${totalGeneral.toFixed(2)} RON`, 196, finalY, { align: "right" });
 
-        // --- Footer (Semnături) ---
+        // --- Footer (Semnături) - LAYOUT ACTUALIZAT ---
         const footerY = finalY + 25;
         doc.setDrawColor(150);
         doc.line(14, footerY, 196, footerY); // Linie delimitare mai fină
@@ -381,6 +393,8 @@ export async function generateNIR(commandId, buttonElement) {
         
         // Bloc Stânga - Comisia
         const leftBlockX = 20;
+        // Eliminăm diacriticele și din footer pentru siguranță, deși textele hardcodate de mine erau curate.
+        // "Comisia de receptie" e ok. "Nume si Prenume" e ok.
         doc.text("Comisia de receptie", leftBlockX, footerY + 10);
         doc.text("Nume si Prenume: _______________________", leftBlockX, footerY + 10 + footerLineHeight);
         doc.text("Semnatura: _______________________", leftBlockX, footerY + 10 + footerLineHeight * 2);
@@ -388,11 +402,10 @@ export async function generateNIR(commandId, buttonElement) {
         // Bloc Dreapta - Gestiune
         const rightBlockX = 120;
         doc.text("Primit in gestiune", rightBlockX, footerY + 10);
-        // Lăsăm un rând gol pentru a alinia semnătura cu cea din stânga
         doc.text("Semnatura: _______________________", rightBlockX, footerY + 10 + footerLineHeight * 2);
 
         // Salvare
-        const safeName = command.id.replace(/[^a-z0-9_\-]/gi, '_'); // Folosim ID-ul în numele fișierului
+        const safeName = command.id.replace(/[^a-z0-9_\-]/gi, '_'); 
         doc.save(`NIR_${safeName}.pdf`);
         alert("NIR generat cu succes!");
 
