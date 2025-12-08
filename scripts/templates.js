@@ -265,7 +265,7 @@ export const templates = {
         `;
     },
 
-    financiarDetails: (commandData, financialData, detailsMap, palletsData) => {
+financiarDetails: (commandData, financialData, detailsMap, palletsData) => {
         if (!commandData) {
             return '<p class="text-gray-500 text-center col-span-full">Selectați o comandă pentru a vedea detaliile.</p>';
         }
@@ -317,11 +317,34 @@ export const templates = {
         // --- SECTIUNE PALETI ---
         let palletsHTML = '';
         if (palletsData && palletsData.length > 0) {
-            const palletsRows = palletsData.map(p => `
+            
+            // 1. CALCULĂ NR. PRODUSE PE PALET (manifestsku) din produsele comenzii
+            const productCounts = commandData.products.reduce((acc, p) => {
+                const sku = p.manifestsku;
+                if (sku) {
+                    // Verificăm dacă produsul face parte din comanda curentă (implicat de filtrul din main.js)
+                    // Numărăm produsele din comanda curentă care au acel manifestsku.
+                    acc[sku] = (acc[sku] || 0) + 1;
+                }
+                return acc;
+            }, {});
+
+            // 2. MAPARE ȘI RANDARE: Folosim manifestsku și costwithoutvat din webhook
+            const processedPallets = palletsData
+                .filter(p => p.orderid === commandData.id) // Filtrare strictă pe comanda curentă
+                .map(p => ({
+                    palletId: p.manifestsku,
+                    // Folosim numărul de produse calculate, ținând cont că p.manifestsku este cheia
+                    productCount: productCounts[p.manifestsku] || 0,
+                    cost: parseFloat(p.costwithoutvat || 0).toFixed(2),
+                }))
+                .sort((a, b) => b.productCount - a.productCount); // Sortare după nr. produse
+
+            const palletsRows = processedPallets.map(p => `
                 <tr class="hover:bg-gray-50">
                     <td class="px-4 py-2 text-sm text-gray-900 font-medium">${p.palletId || 'N/A'}</td>
-                    <td class="px-4 py-2 text-sm text-gray-700">${p.productCount || 0}</td>
-                    <td class="px-4 py-2 text-sm text-gray-900 text-right font-bold">${parseFloat(p.cost || 0).toFixed(2)} RON</td>
+                    <td class="px-4 py-2 text-sm text-gray-700">${p.productCount}</td>
+                    <td class="px-4 py-2 text-sm text-gray-900 text-right font-bold">${p.cost} RON</td>
                 </tr>
             `).join('');
 
@@ -334,7 +357,7 @@ export const templates = {
                                 <tr>
                                     <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">ID Palet</th>
                                     <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Nr. Produse</th>
-                                    <th class="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">Cost Alocat</th>
+                                    <th class="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">COST</th>
                                 </tr>
                             </thead>
                             <tbody class="divide-y divide-gray-200 bg-white">
@@ -344,8 +367,8 @@ export const templates = {
                     </div>
                 </div>
             `;
-        } else if (palletsData) {
-             palletsHTML = `<div class="col-span-full mt-8 mb-4"><p class="text-sm text-gray-500 italic">Nu există date despre paleți pentru această comandă.</p></div>`;
+        } else if (palletsData && Array.isArray(palletsData)) {
+             palletsHTML = `<div class="col-span-full mt-8 mb-4"><p class="text-sm text-gray-500 italic">Nu există date despre paleți asociate acestei comenzi în sistemul de costuri.</p></div>`;
         }
         // -----------------------
 
