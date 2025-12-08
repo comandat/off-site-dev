@@ -210,14 +210,14 @@ export async function saveFinancialDetails(payload, buttonElement) {
     }
 }
 
-// --- Generare NIR (PDF in Browser) ---
+// --- Generare NIR (PDF in Browser) - Layout Final ---
 export async function generateNIR(commandId, buttonElement) {
     const originalHTML = buttonElement.innerHTML;
     buttonElement.disabled = true;
     buttonElement.innerHTML = '<div class="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin mx-auto"></div>';
 
     try {
-        // 1. Verificări preliminare: Trebuie să avem date calculate
+        // 1. Verificări preliminare
         if (!state.financialCalculations || !state.financialCalculations[commandId]) {
             throw new Error("Nu există calcule financiare pentru această comandă. Vă rugăm rulați 'Rulează Calcule' în tab-ul Financiar înainte de a genera NIR-ul.");
         }
@@ -225,7 +225,6 @@ export async function generateNIR(commandId, buttonElement) {
         const command = AppState.getCommands().find(c => c.id === commandId);
         if (!command) throw new Error('Comanda nu a fost găsită.');
 
-        // Asigurăm că avem detaliile (titlurile) pentru produse
         const asins = command.products.map(p => p.asin);
         const detailsMap = await fetchProductDetailsInBulk(asins);
         
@@ -237,19 +236,18 @@ export async function generateNIR(commandId, buttonElement) {
         // 2. Construire Date Tabel
         command.products.forEach(p => {
             const calcData = financials[p.uniqueId];
-            // Ignorăm produsele care nu au fost recepționate sau calculate
-            if (!calcData || calcData.totalCost <= 0) return;
+            // Ignorăm produsele cu cost 0 sau negative
+            if (!calcData || calcData.totalCost <= 0.01) return;
 
             const unitCost = calcData.unitCost;
             const details = detailsMap[p.asin] || {};
             const roTitle = (details.other_versions?.['romanian']?.title || details.title || "N/A").trim();
 
-            // Definim condițiile pentru a sparge rândurile (exact ca în Apps Script)
-            // CN = Ca Nou (BN), FB = Foarte Bun (VG), B = Bun (G)
+            // MODIFICARE: Definim sufixul pentru Cod Articol, nu pentru Denumire
             const conditions = [
-                { qty: p.bncondition, suffix: " - CN" },
-                { qty: p.vgcondition, suffix: " - FB" },
-                { qty: p.gcondition,  suffix: " - B" }
+                { qty: p.bncondition, codeSuffix: "CN" }, // Ca Nou
+                { qty: p.vgcondition, codeSuffix: "FB" }, // Foarte Bun
+                { qty: p.gcondition,  codeSuffix: "B" }   // Bun
             ];
 
             conditions.forEach(cond => {
@@ -261,70 +259,104 @@ export async function generateNIR(commandId, buttonElement) {
                     grandTotalTVA += tva;
 
                     rows.push([
-                        p.asin,                     // Cod Articol
-                        roTitle + cond.suffix,      // Denumire + Sufix
-                        "buc",                      // U.M.
-                        cond.qty,                   // Cantitate
-                        unitCost.toFixed(2),        // Pret Unitar (RON)
-                        valoare.toFixed(2),         // Valoare
-                        tva.toFixed(2)              // TVA (21%)
+                        p.asin + cond.codeSuffix,   // Cod Articol + Sufix Stare (ex: B00...CN)
+                        roTitle,                    // Denumire Curată (Fără sufix)
+                        "buc",                      
+                        cond.qty,                   
+                        unitCost.toFixed(2),        
+                        valoare.toFixed(2),         
+                        tva.toFixed(2)              
                     ]);
                 }
             });
         });
 
         if (rows.length === 0) {
-            throw new Error("Nu există produse valide recepționate pentru a genera NIR.");
+            throw new Error("Nu există produse valide recepționate (cu cost > 0) pentru a genera NIR.");
         }
 
         // 3. Generare PDF cu jsPDF
         const { jsPDF } = window.jspdf;
-        const doc = new jsPDF();
+        // Setăm orientare portret, unitate mm, format A4
+        const doc = new jsPDF({ orientation: 'p', unit: 'mm', format: 'a4' });
+
+        // --- SETĂRI GLOBALE FONT ---
+        // Folosim Helvetica standard peste tot pentru consistență
+        doc.setFont("helvetica", "normal");
+        const textColor = 20; // Aproape negru pentru text standard
 
         // --- Header ---
         doc.setFontSize(10);
+        doc.setTextColor(textColor);
         doc.text("T&G SHOP AND BUSINESS S.R.L.", 14, 15);
         
-        doc.setFontSize(16);
+        doc.setFontSize(14);
         doc.setFont("helvetica", "bold");
         doc.text("NOTA DE RECEPTIE SI CONSTATARE DE DIFERENTE", 105, 25, { align: "center" });
+        doc.setDrawColor(textColor);
         doc.line(14, 27, 196, 27); // Linie sub titlu
+
+        // --- Calcul Data (1 a lunii trecute) ---
+        const now = new Date();
+        const prevMonthFirstDay = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+        const nirDate = prevMonthFirstDay.toLocaleDateString('ro-RO');
 
         // --- Info Comandă ---
         doc.setFontSize(10);
         doc.setFont("helvetica", "normal");
         
-        const today = new Date().toLocaleDateString('ro-RO');
         const infoY = 35;
+        const lineHeight = 5;
         
-        doc.text(`Numar Factura: ${command.name}`, 14, infoY);
-        doc.text(`Data: ${today}`, 14, infoY + 5);
-        doc.text(`Gestiune: Principal`, 14, infoY + 10);
+        // Stânga
+        doc.text(`Numar Factura: ${command.id}`, 14, infoY);
+        doc.text(`Data: ${nirDate}`, 14, infoY + lineHeight);
+        doc.text(`Gestiune: Principal`, 14, infoY + lineHeight * 2);
         
-        doc.text(`Furnizor: JLI Trading Limited`, 120, infoY);
-        doc.text(`Cod Fiscal: PL5263222338`, 120, infoY + 5);
+        // Dreapta
+        const rightColX = 120;
+        doc.text(`Furnizor: JLI Trading Limited`, rightColX, infoY);
+        doc.text(`Cod Fiscal: PL5263222338`, rightColX, infoY + lineHeight);
 
         // --- Tabel Produse ---
         doc.autoTable({
             startY: 55,
             head: [['Cod Articol', 'Denumire', 'U.M.', 'Cant', 'Pret Unitar', 'Valoare', 'TVA (21%)']],
             body: rows,
-            theme: 'grid',
-            styles: { fontSize: 8, cellPadding: 2 },
-            headStyles: { fillColor: [220, 220, 220], textColor: 20, fontStyle: 'bold' },
+            theme: 'grid', // Folosim grid pentru linii clare
+            styles: { 
+                font: "helvetica", // Font consistent și în tabel
+                fontSize: 9, 
+                cellPadding: 3,
+                textColor: [20, 20, 20], // Text închis la culoare (RGB aproape negru)
+                overflow: 'linebreak', // Asigură wrap la textul lung
+                halign: 'center', // Aliniere la mijloc pentru TOATE celulele
+                valign: 'middle'
+            },
+            headStyles: { 
+                fillColor: [230, 230, 230], // Gri deschis pentru header
+                textColor: 0, // Negru complet pentru text header
+                fontStyle: 'bold',
+                halign: 'center'
+            },
             columnStyles: {
-                0: { cellWidth: 25 }, // Cod
-                1: { cellWidth: 'auto' }, // Denumire (auto)
-                2: { cellWidth: 10 }, // UM
-                3: { cellWidth: 12, halign: 'center' }, // Cant
-                4: { cellWidth: 20, halign: 'right' }, // Pret
-                5: { cellWidth: 20, halign: 'right' }, // Valoare
-                6: { cellWidth: 20, halign: 'right' }  // TVA
+                0: { cellWidth: 35 }, // Cod (lărgit puțin pentru sufix)
+                1: { cellWidth: 'auto' }, // Denumire (auto - va face wrap)
+                2: { cellWidth: 12 }, // UM
+                3: { cellWidth: 15 }, // Cant
+                4: { cellWidth: 22 }, // Pret
+                5: { cellWidth: 22 }, // Valoare
+                6: { cellWidth: 22 }  // TVA
+            },
+            footStyles: {
+                 halign: 'center', // Aliniere centru și pentru footer
+                 textColor: [20, 20, 20],
+                 fontStyle: 'bold'
             },
             foot: [[
-                { content: 'TOTAL:', colSpan: 5, styles: { halign: 'right', fontStyle: 'bold' } },
-                { content: grandTotalValoare.toFixed(2), styles: { halign: 'right', fontStyle: 'bold' } },
-                { content: grandTotalTVA.toFixed(2), styles: { halign: 'right', fontStyle: 'bold' } }
+                { content: 'TOTAL:', colSpan: 5, styles: { halign: 'right' } },
+                { content: grandTotalValoare.toFixed(2) },
+                { content: grandTotalTVA.toFixed(2) }
             ]],
         });
 
@@ -333,27 +365,35 @@ export async function generateNIR(commandId, buttonElement) {
         doc.setFontSize(11);
         doc.setFont("helvetica", "bold");
         const totalGeneral = grandTotalValoare + grandTotalTVA;
+        // Aliniem la dreapta tabelului
         doc.text(`TOTAL GENERAL (Valoare + TVA): ${totalGeneral.toFixed(2)} RON`, 196, finalY, { align: "right" });
 
         // --- Footer (Semnături) ---
-        const footerY = finalY + 20;
-        doc.setDrawColor(200);
-        doc.line(14, footerY, 196, footerY); // Linie delimitare
+        const footerY = finalY + 25;
+        doc.setDrawColor(150);
+        doc.line(14, footerY, 196, footerY); // Linie delimitare mai fină
         
-        doc.setFontSize(9);
+        doc.setFontSize(10);
         doc.setFont("helvetica", "normal");
+        doc.setTextColor(textColor);
         
-        // Coloane semnături
-        doc.text("COMISIA DE RECEPTIE", 30, footerY + 10, { align: "center" });
-        doc.text("PRIMIT IN GESTIUNE", 170, footerY + 10, { align: "center" });
+        const footerLineHeight = 12;
         
-        doc.text("Nume si Prenume: ________________", 30, footerY + 25, { align: "center" });
-        doc.text("Semnatura: ________________", 30, footerY + 35, { align: "center" });
+        // Bloc Stânga - Comisia
+        const leftBlockX = 20;
+        doc.text("Comisia de receptie", leftBlockX, footerY + 10);
+        doc.text("Nume si Prenume: _______________________", leftBlockX, footerY + 10 + footerLineHeight);
+        doc.text("Semnatura: _______________________", leftBlockX, footerY + 10 + footerLineHeight * 2);
         
-        doc.text("Semnatura: ________________", 170, footerY + 35, { align: "center" });
+        // Bloc Dreapta - Gestiune
+        const rightBlockX = 120;
+        doc.text("Primit in gestiune", rightBlockX, footerY + 10);
+        // Lăsăm un rând gol pentru a alinia semnătura cu cea din stânga
+        doc.text("Semnatura: _______________________", rightBlockX, footerY + 10 + footerLineHeight * 2);
 
         // Salvare
-        doc.save(`NIR_${command.name.replace(/[^a-z0-9]/gi, '_')}.pdf`);
+        const safeName = command.id.replace(/[^a-z0-9_\-]/gi, '_'); // Folosim ID-ul în numele fișierului
+        doc.save(`NIR_${safeName}.pdf`);
         alert("NIR generat cu succes!");
 
     } catch (error) {
