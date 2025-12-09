@@ -389,35 +389,54 @@ export async function handleDescriptionRefresh(actionButton) {
 
 
 export async function handleTranslationInit(languageOption) {
-    // 1. Salvăm datele din UI în State
+    // 1. PREVENIRE CLICK DUBLU
+    if (languageOption.hasAttribute('data-processing')) return;
+    
+    // 2. SALVARE DATE (TAB CURENT)
     saveCurrentTabData();
 
     const langCode = languageOption.dataset.langCode;
+    const langName = languageOption.textContent; // Salvăm numele limbii
     const asin = document.getElementById('product-asin').value;
     
-    // --- ÎNCEPUT VALIDĂRI (NOU) ---
+    // 3. VALIDĂRI PRELIMINARE
     const originTitle = state.editedProductData.title || '';
     const originDescription = state.editedProductData.description || '';
     const originImages = (state.editedProductData.images || []).filter(img => img);
 
-    // Verificare 1: Descrierea < 50 caractere
+    const resetUI = () => {
+        languageOption.removeAttribute('data-processing');
+        languageOption.innerHTML = langName;
+        languageOption.classList.remove('bg-gray-100', 'text-gray-400', 'cursor-not-allowed');
+        languageOption.style.pointerEvents = 'auto';
+    };
+
     if (originDescription.trim().length < 50) {
         alert(`Eroare: Descrierea este prea scurtă (${originDescription.trim().length} caractere). Minim necesar: 50.`);
         return; 
     }
 
-    // Verificare 2: Titlul < 10 caractere
     if (originTitle.trim().length < 10) {
         alert(`Eroare: Titlul este prea scurt (${originTitle.trim().length} caractere). Minim necesar: 10.`);
         return; 
     }
 
-    // Verificare 3: Produsul nu are măcar 3 imagini
     if (originImages.length < 3) {
         alert(`Eroare: Produsul are doar ${originImages.length} imagini. Sunt necesare minim 3 imagini pentru a începe traducerea.`);
         return; 
     }
-    // --- SFÂRȘIT VALIDĂRI ---
+
+    // 4. ACTUALIZARE UI - LOADING STATE
+    languageOption.setAttribute('data-processing', 'true');
+    languageOption.style.pointerEvents = 'none'; // Blochează click-urile
+    languageOption.classList.add('bg-gray-100', 'text-gray-400', 'cursor-not-allowed');
+    
+    languageOption.innerHTML = `
+        <div class="flex items-center justify-between">
+            <span>${langName}</span>
+            <div class="w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin ml-2"></div>
+        </div>
+    `;
     
     try {
         const response = await fetch(TRANSLATION_WEBHOOK_URL, { 
@@ -425,14 +444,30 @@ export async function handleTranslationInit(languageOption) {
             headers: { 'Content-Type': 'application/json' }, 
             body: JSON.stringify({ asin: asin, language: langCode }) 
         });
+
         if (response.ok) { 
-            alert(`Traducere pentru ${langCode.toUpperCase()} a fost inițiată.`); 
+            // Feedback succes
+            languageOption.innerHTML = `
+                <div class="flex items-center justify-between text-green-600">
+                    <span>${langName}</span>
+                    <span class="material-icons text-sm">check</span>
+                </div>
+            `;
+            
+            setTimeout(() => {
+                 alert(`Traducere pentru ${langCode.toUpperCase()} a fost inițiată cu succes.`);
+                 languageOption.closest('.dropdown-menu')?.classList.add('hidden');
+                 resetUI(); 
+            }, 500);
+
         } else { 
-            alert('Eroare la inițierea traducerii.'); 
+            alert('Eroare la inițierea traducerii (Răspuns server invalid).'); 
+            resetUI();
         }
     } catch (error) { 
         console.error('Eroare Webhook:', error); 
         alert('Eroare de rețea la inițierea traducerii.'); 
+        resetUI();
     }
 }
 
