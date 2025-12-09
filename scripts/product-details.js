@@ -280,13 +280,15 @@ export async function handleTitleRefresh(actionButton) {
     const refreshBtn = actionButton;
     const refreshIcon = refreshBtn.querySelector('.refresh-icon');
     const refreshSpinner = refreshBtn.querySelector('.refresh-spinner');
+    
     const originTitle = state.editedProductData.title;
     const originDescription = state.editedProductData.description;
     const competitionCache = state.competitionDataCache;
     const currentAsin = document.getElementById('product-asin')?.value;
     
-    if (!originTitle || !originDescription || !competitionCache || !currentAsin) {
-        alert('Eroare: Datele necesare (inclusiv ASIN) nu sunt disponibile.');
+    // VERIFICARE: Am eliminat competitionCache din lista obligatorie
+    if (!originTitle || !originDescription || !currentAsin) {
+        alert('Eroare: Datele minime necesare (Titlu, Descriere, ASIN) nu sunt disponibile.');
         return;
     }
     
@@ -295,8 +297,13 @@ export async function handleTitleRefresh(actionButton) {
     refreshBtn.disabled = true;
     
     const payload = { asin: currentAsin, title: originTitle, description: originDescription };
+    
+    // LOGICĂ SAFE: Dacă avem competitionCache, îl folosim. Dacă nu, folosim {} pentru a nu da eroare.
+    // Aceasta asigură că datele sunt trimise DACĂ EXISTĂ.
+    const safeCompetitionData = competitionCache || {};
+
     for (let i = 1; i <= 5; i++) { 
-        payload[`competition_${i}_title`] = competitionCache[`productname_${i}`] || null; 
+        payload[`competition_${i}_title`] = safeCompetitionData[`productname_${i}`] || null; 
     }
     
     try {
