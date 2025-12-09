@@ -11,7 +11,6 @@ import { state } from './state.js';
 
 /**
  * Funcție helper pentru eliminarea diacriticelor.
- * Transformă "șurubelniță" în "surubelnita".
  */
 function removeDiacritics(str) {
     if (!str) return "";
@@ -55,16 +54,16 @@ export async function sendReadyToList(payload, buttonElement) {
         }
 
         await response.json();
-        await fetchDataAndSyncState(); // Re-fetch data
+        await fetchDataAndSyncState(); 
         return true;
 
     } catch (error) {
         console.error('Eroare la trimiterea "Marchează/Anulează Marcaj Gata":', error);
         alert(`A apărut o eroare: ${error.message}`);
-         if (targetElement) targetElement.innerHTML = originalHTML; // Restore only on error
+         if (targetElement) targetElement.innerHTML = originalHTML; 
         return false;
     } finally {
-         if (buttonElement) buttonElement.style.pointerEvents = 'auto'; // Re-enable button/link
+         if (buttonElement) buttonElement.style.pointerEvents = 'auto'; 
     }
 }
 
@@ -100,14 +99,14 @@ export async function handleUploadSubmit(event) {
             statusEl.textContent = 'Comanda a fost importată!'; 
             statusEl.className = 'text-green-600'; 
             event.target.reset(); 
-            return true; // Succes
+            return true; 
         } else {
             throw new Error('Eroare server.');
         }
     } catch (error) { 
         statusEl.textContent = 'A apărut o eroare.'; 
         statusEl.className = 'text-red-600'; 
-        return false; // Eșec
+        return false; 
     } finally { 
         uploadBtn.disabled = false; 
         btnText.classList.remove('hidden'); 
@@ -159,7 +158,7 @@ export async function handleAsinUpdate(actionButton) {
         if (result.status === 'success') {
             alert("ASIN-ul a fost actualizat cu succes! Se reîncarcă datele...");
             await fetchDataAndSyncState(); 
-            return true; // Succes
+            return true; 
         } else {
             alert(`Eroare la actualizare: ${result.message || 'Răspuns invalid de la server.'}`);
             return false;
@@ -189,7 +188,6 @@ export async function saveFinancialDetails(payload, buttonElement) {
             throw new Error(`Eroare HTTP: ${response.status}. ${errorText}`);
         }
 
-        // Actualizăm cache-ul local
         const currentData = AppState.getFinancialData();
         let found = false;
         const updatedData = currentData.map(item => {
@@ -245,34 +243,30 @@ export async function generateNIR(commandId, buttonElement) {
         // 2. Construire Date Tabel
         command.products.forEach(p => {
             const calcData = financials[p.uniqueId];
-            // Ignorăm produsele cu cost 0 sau negative (de ex. produse nelistabile sau necalculate)
             if (!calcData || calcData.totalCost <= 0.01) return;
 
             const unitCost = calcData.unitCost;
             const details = detailsMap[p.asin] || {};
-            
-            // Preluăm titlul RO și ELIMINĂM DIACRITICELE
             const rawTitle = (details.other_versions?.['romanian']?.title || details.title || "N/A").trim();
-            const roTitle = removeDiacritics(rawTitle);
+            const roTitle = removeDiacritics(rawTitle); // Eliminăm diacriticele pentru PDF
 
-            // Definim sufixul pentru Cod Articol
             const conditions = [
-                { qty: p.bncondition, codeSuffix: "CN" }, // Ca Nou
-                { qty: p.vgcondition, codeSuffix: "FB" }, // Foarte Bun
-                { qty: p.gcondition,  codeSuffix: "B" }   // Bun
+                { qty: p.bncondition, codeSuffix: "CN" }, 
+                { qty: p.vgcondition, codeSuffix: "FB" }, 
+                { qty: p.gcondition,  codeSuffix: "B" }   
             ];
 
             conditions.forEach(cond => {
                 if (cond.qty > 0) {
                     const valoare = cond.qty * unitCost;
-                    const tva = valoare * 0.21; // TVA 21%
+                    const tva = valoare * 0.21; 
 
                     grandTotalValoare += valoare;
                     grandTotalTVA += tva;
 
                     rows.push([
-                        p.asin + cond.codeSuffix,   // Cod Articol + Sufix Stare (ex: B00...CN)
-                        roTitle,                    // Denumire Curată (Fără sufix, Fără diacritice)
+                        p.asin + cond.codeSuffix,   
+                        roTitle,                    
                         "buc",                      
                         cond.qty,                   
                         unitCost.toFixed(2),        
@@ -289,15 +283,12 @@ export async function generateNIR(commandId, buttonElement) {
 
         // 3. Generare PDF cu jsPDF
         const { jsPDF } = window.jspdf;
-        // Setăm orientare portret, unitate mm, format A4
         const doc = new jsPDF({ orientation: 'p', unit: 'mm', format: 'a4' });
 
-        // --- SETĂRI GLOBALE FONT ---
-        // Folosim Helvetica standard (nu suportă diacritice, de aceea le-am scos)
         doc.setFont("helvetica", "normal");
-        const textColor = 20; // Aproape negru
+        const textColor = 20;
 
-        // --- Header ---
+        // Header
         doc.setFontSize(10);
         doc.setTextColor(textColor);
         doc.text("T&G SHOP AND BUSINESS S.R.L.", 14, 15);
@@ -306,31 +297,29 @@ export async function generateNIR(commandId, buttonElement) {
         doc.setFont("helvetica", "bold");
         doc.text("NOTA DE RECEPTIE SI CONSTATARE DE DIFERENTE", 105, 25, { align: "center" });
         doc.setDrawColor(textColor);
-        doc.line(14, 27, 196, 27); // Linie sub titlu
+        doc.line(14, 27, 196, 27); 
 
-        // --- Calcul Data (1 a lunii trecute) ---
+        // Calcul Data (1 a lunii trecute)
         const now = new Date();
         const prevMonthFirstDay = new Date(now.getFullYear(), now.getMonth() - 1, 1);
         const nirDate = prevMonthFirstDay.toLocaleDateString('ro-RO');
 
-        // --- Info Comandă ---
+        // Info Comandă
         doc.setFontSize(10);
         doc.setFont("helvetica", "normal");
         
         const infoY = 35;
         const lineHeight = 5;
         
-        // Stânga
         doc.text(`Numar Factura: ${command.id}`, 14, infoY);
         doc.text(`Data: ${nirDate}`, 14, infoY + lineHeight);
         doc.text(`Gestiune: Principal`, 14, infoY + lineHeight * 2);
         
-        // Dreapta
         const rightColX = 120;
         doc.text(`Furnizor: JLI Trading Limited`, rightColX, infoY);
         doc.text(`Cod Fiscal: PL5263222338`, rightColX, infoY + lineHeight);
 
-        // --- Tabel Produse ---
+        // Tabel Produse
         doc.autoTable({
             startY: 55,
             head: [['Cod Articol', 'Denumire', 'U.M.', 'Cant', 'Pret Unitar', 'Valoare', 'TVA (21%)']],
@@ -341,24 +330,24 @@ export async function generateNIR(commandId, buttonElement) {
                 fontSize: 9, 
                 cellPadding: 3,
                 textColor: [20, 20, 20], 
-                overflow: 'linebreak', // Asigură wrap la textul lung
-                halign: 'center', // Aliniere la mijloc pentru TOATE celulele
+                overflow: 'linebreak', 
+                halign: 'center', 
                 valign: 'middle'
             },
             headStyles: { 
-                fillColor: [230, 230, 230], // Gri deschis
-                textColor: 0, // Negru complet
+                fillColor: [230, 230, 230], 
+                textColor: 0, 
                 fontStyle: 'bold',
                 halign: 'center'
             },
             columnStyles: {
-                0: { cellWidth: 35 }, // Cod (lărgit pentru sufix)
-                1: { cellWidth: 'auto' }, // Denumire (auto - va face wrap)
-                2: { cellWidth: 12 }, // UM
-                3: { cellWidth: 15 }, // Cant
-                4: { cellWidth: 22 }, // Pret
-                5: { cellWidth: 22 }, // Valoare
-                6: { cellWidth: 22 }  // TVA
+                0: { cellWidth: 35 }, 
+                1: { cellWidth: 'auto' }, 
+                2: { cellWidth: 12 }, 
+                3: { cellWidth: 15 }, 
+                4: { cellWidth: 22 }, 
+                5: { cellWidth: 22 }, 
+                6: { cellWidth: 22 }  
             },
             footStyles: {
                  halign: 'center',
@@ -372,18 +361,15 @@ export async function generateNIR(commandId, buttonElement) {
             ]],
         });
 
-        // --- Total General ---
         const finalY = doc.lastAutoTable.finalY + 10;
         doc.setFontSize(11);
         doc.setFont("helvetica", "bold");
         const totalGeneral = grandTotalValoare + grandTotalTVA;
-        // Aliniem la dreapta tabelului
         doc.text(`TOTAL GENERAL (Valoare + TVA): ${totalGeneral.toFixed(2)} RON`, 196, finalY, { align: "right" });
 
-        // --- Footer (Semnături) - LAYOUT ACTUALIZAT ---
         const footerY = finalY + 25;
         doc.setDrawColor(150);
-        doc.line(14, footerY, 196, footerY); // Linie delimitare mai fină
+        doc.line(14, footerY, 196, footerY); 
         
         doc.setFontSize(10);
         doc.setFont("helvetica", "normal");
@@ -391,26 +377,118 @@ export async function generateNIR(commandId, buttonElement) {
         
         const footerLineHeight = 12;
         
-        // Bloc Stânga - Comisia
         const leftBlockX = 20;
-        // Eliminăm diacriticele și din footer pentru siguranță, deși textele hardcodate de mine erau curate.
-        // "Comisia de receptie" e ok. "Nume si Prenume" e ok.
         doc.text("Comisia de receptie", leftBlockX, footerY + 10);
         doc.text("Nume si Prenume: _______________________", leftBlockX, footerY + 10 + footerLineHeight);
         doc.text("Semnatura: _______________________", leftBlockX, footerY + 10 + footerLineHeight * 2);
         
-        // Bloc Dreapta - Gestiune
         const rightBlockX = 120;
         doc.text("Primit in gestiune", rightBlockX, footerY + 10);
         doc.text("Semnatura: _______________________", rightBlockX, footerY + 10 + footerLineHeight * 2);
 
-        // Salvare
         const safeName = command.id.replace(/[^a-z0-9_\-]/gi, '_'); 
         doc.save(`NIR_${safeName}.pdf`);
         alert("NIR generat cu succes!");
 
     } catch (error) {
         console.error('Eroare la generarea NIR:', error);
+        alert(`Eroare: ${error.message}`);
+    } finally {
+        buttonElement.disabled = false;
+        buttonElement.innerHTML = originalHTML;
+    }
+}
+
+// --- Trimite Date către Balanță (Postgres via n8n) - UPDATE: VALORI CU TVA ---
+export async function sendToBalance(commandId, buttonElement) {
+    const originalHTML = buttonElement.innerHTML;
+    buttonElement.disabled = true;
+    buttonElement.innerHTML = '<div class="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin mx-auto"></div>';
+
+    try {
+        // 1. Verificări și Date
+        if (!state.financialCalculations || !state.financialCalculations[commandId]) {
+            throw new Error("Nu există calcule financiare. Rulați 'Rulează Calcule' mai întâi.");
+        }
+
+        const command = AppState.getCommands().find(c => c.id === commandId);
+        if (!command) throw new Error('Comanda nu a fost găsită.');
+
+        const asins = command.products.map(p => p.asin);
+        const detailsMap = await fetchProductDetailsInBulk(asins);
+        const financials = state.financialCalculations[commandId];
+
+        // 2. Construim Payload-ul
+        const itemsPayload = [];
+
+        command.products.forEach(p => {
+            const calcData = financials[p.uniqueId];
+            if (!calcData || calcData.totalCost <= 0.01) return;
+
+            const unitCost = calcData.unitCost;
+            const details = detailsMap[p.asin] || {};
+            // Folosim funcția de curățare diacritice, deși DB suportă, pentru consistență
+            const rawTitle = (details.other_versions?.['romanian']?.title || details.title || "N/A").trim();
+            const roTitle = removeDiacritics(rawTitle); 
+
+            // Definim sufixele
+            const conditions = [
+                { qty: p.bncondition, codeSuffix: "CN", nameSuffix: " - CN" },
+                { qty: p.vgcondition, codeSuffix: "FB", nameSuffix: " - FB" },
+                { qty: p.gcondition,  codeSuffix: "B",  nameSuffix: " - B" }
+            ];
+
+            conditions.forEach(cond => {
+                if (cond.qty > 0) {
+                    // --- MODIFICARE: Calculăm valorile CU TVA (1.21) ---
+                    const unitCostWithTva = unitCost * 1.21;
+                    const valoareTotalaWithTva = cond.qty * unitCostWithTva;
+                    
+                    itemsPayload.push({
+                        code: p.asin + cond.codeSuffix,
+                        name: roTitle + cond.nameSuffix, 
+                        qty: cond.qty,
+                        unit_price: Number(unitCostWithTva.toFixed(4)), // Preț unitar cu TVA (precizie mare)
+                        total_value: Number(valoareTotalaWithTva.toFixed(2)) // Total linie cu TVA
+                    });
+                }
+            });
+        });
+
+        if (itemsPayload.length === 0) {
+            throw new Error("Nu există date valide de trimis.");
+        }
+
+        // Calculăm data (1 a lunii trecute, ca la NIR)
+        const now = new Date();
+        const prevMonthFirstDay = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+        const dateString = prevMonthFirstDay.toISOString().split('T')[0];
+
+        const payload = {
+            action: "insert_nir",
+            orderId: command.id,
+            date: dateString,
+            items: itemsPayload
+        };
+
+        console.log("Trimitere către Balanță:", payload);
+
+        // 3. Trimite către Webhook
+        const response = await fetch('https://automatizare.comandat.ro/webhook/insert-balanta', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+
+        if (!response.ok) {
+            throw new Error(`Eroare server: ${response.status}`);
+        }
+
+        const resData = await response.json();
+        alert("Datele au fost trimise cu succes în Balanță!");
+
+    } catch (error) {
+        console.error('Eroare trimitere balanță:', error);
         alert(`Eroare: ${error.message}`);
     } finally {
         buttonElement.disabled = false;
