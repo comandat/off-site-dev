@@ -4,7 +4,8 @@ import {
     READY_TO_LIST_WEBHOOK_URL, 
     ASIN_UPDATE_WEBHOOK_URL,
     SAVE_FINANCIAL_WEBHOOK_URL,
-    GENERATE_NIR_WEBHOOK_URL 
+    GENERATE_NIR_WEBHOOK_URL,
+    INSERT_BALANCE_WEBHOOK_URL 
 } from './constants.js';
 import { fetchDataAndSyncState, AppState, fetchProductDetailsInBulk } from './data.js';
 import { state } from './state.js';
@@ -17,40 +18,41 @@ function removeDiacritics(str) {
     return str.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 }
 
+/**
+ * Trimite Date către Balanță (Postgres via n8n) - UPDATE: VALORI CU TVA
+ */
 export async function sendToBalance(commandId, buttonElement) {
     const originalHTML = buttonElement.innerHTML;
     buttonElement.disabled = true;
     buttonElement.innerHTML = '<div class="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin mx-auto"></div>';
 
     try {
-        // 1. Verificări: Avem calcule făcute?
+        // 1. Verificări și Date
         if (!state.financialCalculations || !state.financialCalculations[commandId]) {
-            throw new Error("Nu există calcule financiare pentru această comandă. Rulați 'Rulează Calcule' mai întâi.");
+            throw new Error("Nu există calcule financiare. Rulați 'Rulează Calcule' mai întâi.");
         }
 
         const command = AppState.getCommands().find(c => c.id === commandId);
         if (!command) throw new Error('Comanda nu a fost găsită.');
 
-        // Preluăm detaliile pentru titluri (avem nevoie de titlurile RO curate)
         const asins = command.products.map(p => p.asin);
         const detailsMap = await fetchProductDetailsInBulk(asins);
         const financials = state.financialCalculations[commandId];
 
-        // 2. Construirea Payload-ului (Structură eficientă)
+        // 2. Construim Payload-ul
         const itemsPayload = [];
 
         command.products.forEach(p => {
             const calcData = financials[p.uniqueId];
-            // Ignorăm produsele cu cost 0
             if (!calcData || calcData.totalCost <= 0.01) return;
 
             const unitCost = calcData.unitCost;
             const details = detailsMap[p.asin] || {};
-            // Titlul curat, fără diacritice, pentru consistență în DB
+            
             const rawTitle = (details.other_versions?.['romanian']?.title || details.title || "N/A").trim();
             const roTitle = removeDiacritics(rawTitle); 
 
-            // Mapăm cantitățile pe sufixe (exact ca la NIR)
+            // Definim sufixele
             const conditions = [
                 { qty: p.bncondition, codeSuffix: "CN", nameSuffix: " - CN" },
                 { qty: p.vgcondition, codeSuffix: "FB", nameSuffix: " - FB" },
@@ -59,38 +61,41 @@ export async function sendToBalance(commandId, buttonElement) {
 
             conditions.forEach(cond => {
                 if (cond.qty > 0) {
-                    const totalVal = cond.qty * unitCost;
+                    // Calculăm valorile CU TVA (1.21)
+                    const unitCostWithTva = unitCost * 1.21;
+                    const valoareTotalaWithTva = cond.qty * unitCostWithTva;
                     
                     itemsPayload.push({
                         product_code: p.asin + cond.codeSuffix,
                         product_name: roTitle + cond.nameSuffix,
-                        um: "buc", // Unitate de măsură standard
+                        um: "buc", 
                         quantity: cond.qty,
-                        unit_price: Number(unitCost.toFixed(4)), // 4 zecimale pentru precizie
-                        total_value: Number(totalVal.toFixed(2))
+                        unit_price: Number(unitCostWithTva.toFixed(4)), 
+                        total_value: Number(valoareTotalaWithTva.toFixed(2)) 
                     });
                 }
             });
         });
 
         if (itemsPayload.length === 0) {
-            throw new Error("Nu există produse valide (cu cost > 0) de trimis.");
+            throw new Error("Nu există date valide de trimis.");
         }
 
-        // Data recepției (convenție: 1 a lunii trecute, sau data curentă - ajustați după nevoie)
+        // Calculăm data (1 a lunii trecute, ca la NIR, sau curentă - depinde de preferință)
         const now = new Date();
-        // Exemplu: data curentă. Dacă doriți logică de NIR (luna anterioară), ajustați aici.
-        const movementDate = new Date().toISOString().split('T')[0]; 
+        const prevMonthFirstDay = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+        const dateString = prevMonthFirstDay.toISOString().split('T')[0];
 
         const payload = {
+            action: "insert_nir",
             orderId: command.id,
-            movementDate: movementDate,
+            movementDate: dateString,
             items: itemsPayload
         };
 
         console.log("Trimitere către Balanță:", payload);
 
-        // 3. Apel Webhook
+        // 3. Trimite către Webhook
         const response = await fetch(INSERT_BALANCE_WEBHOOK_URL, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -98,12 +103,11 @@ export async function sendToBalance(commandId, buttonElement) {
         });
 
         if (!response.ok) {
-            const errText = await response.text();
-            throw new Error(`Eroare server (${response.status}): ${errText}`);
+            throw new Error(`Eroare server: ${response.status}`);
         }
 
         const resData = await response.json();
-        alert(`Succes: ${resData.message || 'Datele au fost actualizate în balanță!'}`);
+        alert("Datele au fost trimise cu succes în Balanță!");
 
     } catch (error) {
         console.error('Eroare trimitere balanță:', error);
@@ -489,103 +493,6 @@ export async function generateNIR(commandId, buttonElement) {
 
     } catch (error) {
         console.error('Eroare la generarea NIR:', error);
-        alert(`Eroare: ${error.message}`);
-    } finally {
-        buttonElement.disabled = false;
-        buttonElement.innerHTML = originalHTML;
-    }
-}
-
-// --- Trimite Date către Balanță (Postgres via n8n) - UPDATE: VALORI CU TVA ---
-export async function sendToBalance(commandId, buttonElement) {
-    const originalHTML = buttonElement.innerHTML;
-    buttonElement.disabled = true;
-    buttonElement.innerHTML = '<div class="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin mx-auto"></div>';
-
-    try {
-        // 1. Verificări și Date
-        if (!state.financialCalculations || !state.financialCalculations[commandId]) {
-            throw new Error("Nu există calcule financiare. Rulați 'Rulează Calcule' mai întâi.");
-        }
-
-        const command = AppState.getCommands().find(c => c.id === commandId);
-        if (!command) throw new Error('Comanda nu a fost găsită.');
-
-        const asins = command.products.map(p => p.asin);
-        const detailsMap = await fetchProductDetailsInBulk(asins);
-        const financials = state.financialCalculations[commandId];
-
-        // 2. Construim Payload-ul
-        const itemsPayload = [];
-
-        command.products.forEach(p => {
-            const calcData = financials[p.uniqueId];
-            if (!calcData || calcData.totalCost <= 0.01) return;
-
-            const unitCost = calcData.unitCost;
-            const details = detailsMap[p.asin] || {};
-            // Folosim funcția de curățare diacritice, deși DB suportă, pentru consistență
-            const rawTitle = (details.other_versions?.['romanian']?.title || details.title || "N/A").trim();
-            const roTitle = removeDiacritics(rawTitle); 
-
-            // Definim sufixele
-            const conditions = [
-                { qty: p.bncondition, codeSuffix: "CN", nameSuffix: " - CN" },
-                { qty: p.vgcondition, codeSuffix: "FB", nameSuffix: " - FB" },
-                { qty: p.gcondition,  codeSuffix: "B",  nameSuffix: " - B" }
-            ];
-
-            conditions.forEach(cond => {
-                if (cond.qty > 0) {
-                    // --- MODIFICARE: Calculăm valorile CU TVA (1.21) ---
-                    const unitCostWithTva = unitCost * 1.21;
-                    const valoareTotalaWithTva = cond.qty * unitCostWithTva;
-                    
-                    itemsPayload.push({
-                        code: p.asin + cond.codeSuffix,
-                        name: roTitle + cond.nameSuffix, 
-                        qty: cond.qty,
-                        unit_price: Number(unitCostWithTva.toFixed(4)), // Preț unitar cu TVA (precizie mare)
-                        total_value: Number(valoareTotalaWithTva.toFixed(2)) // Total linie cu TVA
-                    });
-                }
-            });
-        });
-
-        if (itemsPayload.length === 0) {
-            throw new Error("Nu există date valide de trimis.");
-        }
-
-        // Calculăm data (1 a lunii trecute, ca la NIR)
-        const now = new Date();
-        const prevMonthFirstDay = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-        const dateString = prevMonthFirstDay.toISOString().split('T')[0];
-
-        const payload = {
-            action: "insert_nir",
-            orderId: command.id,
-            date: dateString,
-            items: itemsPayload
-        };
-
-        console.log("Trimitere către Balanță:", payload);
-
-        // 3. Trimite către Webhook
-        const response = await fetch('https://automatizare.comandat.ro/webhook/insert-balanta', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
-        });
-
-        if (!response.ok) {
-            throw new Error(`Eroare server: ${response.status}`);
-        }
-
-        const resData = await response.json();
-        alert("Datele au fost trimise cu succes în Balanță!");
-
-    } catch (error) {
-        console.error('Eroare trimitere balanță:', error);
         alert(`Eroare: ${error.message}`);
     } finally {
         buttonElement.disabled = false;
