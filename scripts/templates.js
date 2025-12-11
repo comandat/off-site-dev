@@ -443,6 +443,9 @@ financiarProductTable: (products, detailsMap, commandId, calculatedData = null) 
                     <button id="generate-nir-btn" data-action="generate-nir" class="px-4 py-2 bg-green-600 text-white font-bold rounded-lg hover:bg-green-700 transition-colors flex items-center gap-2 shadow-sm disabled:bg-gray-400 disabled:cursor-not-allowed">
                         <span class="material-icons text-sm">receipt_long</span>
                         <span>Generează NIR</span>
+                    </button><button id="send-balance-btn" data-action="send-to-balance" class="px-4 py-2 bg-indigo-600 text-white font-bold rounded-lg hover:bg-indigo-700 transition-colors flex items-center gap-2 shadow-sm disabled:bg-gray-400 disabled:cursor-not-allowed">
+                        <span class="material-icons text-sm">account_balance</span>
+                        <span>Trimite în Balanță</span>
                     </button>
                 </div>
             </div>
