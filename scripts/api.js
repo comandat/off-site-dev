@@ -17,6 +17,103 @@ function removeDiacritics(str) {
     return str.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 }
 
+export async function sendToBalance(commandId, buttonElement) {
+    const originalHTML = buttonElement.innerHTML;
+    buttonElement.disabled = true;
+    buttonElement.innerHTML = '<div class="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin mx-auto"></div>';
+
+    try {
+        // 1. Verificări: Avem calcule făcute?
+        if (!state.financialCalculations || !state.financialCalculations[commandId]) {
+            throw new Error("Nu există calcule financiare pentru această comandă. Rulați 'Rulează Calcule' mai întâi.");
+        }
+
+        const command = AppState.getCommands().find(c => c.id === commandId);
+        if (!command) throw new Error('Comanda nu a fost găsită.');
+
+        // Preluăm detaliile pentru titluri (avem nevoie de titlurile RO curate)
+        const asins = command.products.map(p => p.asin);
+        const detailsMap = await fetchProductDetailsInBulk(asins);
+        const financials = state.financialCalculations[commandId];
+
+        // 2. Construirea Payload-ului (Structură eficientă)
+        const itemsPayload = [];
+
+        command.products.forEach(p => {
+            const calcData = financials[p.uniqueId];
+            // Ignorăm produsele cu cost 0
+            if (!calcData || calcData.totalCost <= 0.01) return;
+
+            const unitCost = calcData.unitCost;
+            const details = detailsMap[p.asin] || {};
+            // Titlul curat, fără diacritice, pentru consistență în DB
+            const rawTitle = (details.other_versions?.['romanian']?.title || details.title || "N/A").trim();
+            const roTitle = removeDiacritics(rawTitle); 
+
+            // Mapăm cantitățile pe sufixe (exact ca la NIR)
+            const conditions = [
+                { qty: p.bncondition, codeSuffix: "CN", nameSuffix: " - CN" },
+                { qty: p.vgcondition, codeSuffix: "FB", nameSuffix: " - FB" },
+                { qty: p.gcondition,  codeSuffix: "B",  nameSuffix: " - B" }
+            ];
+
+            conditions.forEach(cond => {
+                if (cond.qty > 0) {
+                    const totalVal = cond.qty * unitCost;
+                    
+                    itemsPayload.push({
+                        product_code: p.asin + cond.codeSuffix,
+                        product_name: roTitle + cond.nameSuffix,
+                        um: "buc", // Unitate de măsură standard
+                        quantity: cond.qty,
+                        unit_price: Number(unitCost.toFixed(4)), // 4 zecimale pentru precizie
+                        total_value: Number(totalVal.toFixed(2))
+                    });
+                }
+            });
+        });
+
+        if (itemsPayload.length === 0) {
+            throw new Error("Nu există produse valide (cu cost > 0) de trimis.");
+        }
+
+        // Data recepției (convenție: 1 a lunii trecute, sau data curentă - ajustați după nevoie)
+        const now = new Date();
+        // Exemplu: data curentă. Dacă doriți logică de NIR (luna anterioară), ajustați aici.
+        const movementDate = new Date().toISOString().split('T')[0]; 
+
+        const payload = {
+            orderId: command.id,
+            movementDate: movementDate,
+            items: itemsPayload
+        };
+
+        console.log("Trimitere către Balanță:", payload);
+
+        // 3. Apel Webhook
+        const response = await fetch(INSERT_BALANCE_WEBHOOK_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+
+        if (!response.ok) {
+            const errText = await response.text();
+            throw new Error(`Eroare server (${response.status}): ${errText}`);
+        }
+
+        const resData = await response.json();
+        alert(`Succes: ${resData.message || 'Datele au fost actualizate în balanță!'}`);
+
+    } catch (error) {
+        console.error('Eroare trimitere balanță:', error);
+        alert(`Eroare: ${error.message}`);
+    } finally {
+        buttonElement.disabled = false;
+        buttonElement.innerHTML = originalHTML;
+    }
+}
+
 /**
  * Trimite starea "Gata de listat" pentru un produs sau o comandă întreagă.
  */
