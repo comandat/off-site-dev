@@ -50,12 +50,13 @@ async function fetchPalletsData(commandId) {
 
 // --- LOGICA DE CALCUL FINANCIAR FINALĂ (FILTRARE STRICTĂ) ---
 function performFinancialCalculations(commandId, products, palletsData) {
-    console.group("--- START CALCULE FINANCIARE (FILTRAT) ---");
+    console.group("--- START CALCULE FINANCIARE (CU REDUCERE TRANSPORT) ---");
 
     // 1. Preluare input-uri financiare
     const currencyEl = document.getElementById('financiar-moneda');
     const rateEl = document.getElementById('financiar-rata-schimb');
     const transportEl = document.getElementById('financiar-cost-transport');
+    const discountEl = document.getElementById('financiar-reducere'); // <--- Preluare Reducere
     
     const currency = currencyEl ? currencyEl.value : 'RON';
     let exchangeRate = 1;
@@ -74,7 +75,6 @@ function performFinancialCalculations(commandId, products, palletsData) {
     const palletMap = {}; 
     
     palletsData.forEach(p => {
-        // --- FILTRARE STRICTĂ: Ignorăm paleții din alte comenzi ---
         if (String(p.orderid) !== String(commandId)) {
             return; 
         }
@@ -97,7 +97,6 @@ function performFinancialCalculations(commandId, products, palletsData) {
     let hasCriticalErrors = false;
 
     for (const p of products) {
-        // Formula: (Bun + VG + G) - Broken = Cantitate Vandabilă
         const totalReceived = (p.bncondition || 0) + (p.vgcondition || 0) + (p.gcondition || 0) + (p.broken || 0);
         const qty = totalReceived - (p.broken || 0);
 
@@ -112,7 +111,6 @@ function performFinancialCalculations(commandId, products, palletsData) {
             break; 
         }
 
-        // Adunăm valoarea vânzărilor la palet
         if (palletMap[manifestSku]) {
             palletMap[manifestSku].totalSales += (price * qty);
             palletMap[manifestSku].hasItems = true;
@@ -134,7 +132,7 @@ function performFinancialCalculations(commandId, products, palletsData) {
         return null;
     }
 
-    // 4. Calculăm ȚINTA REALĂ (Doar paleții activi + Transport)
+    // 4. Calculăm ȚINTA REALĂ (Paleți + Transport - Reducere)
     let activePalletsTotalCost = 0;
     Object.keys(palletMap).forEach(sku => {
         if (palletMap[sku].hasItems) {
@@ -142,19 +140,31 @@ function performFinancialCalculations(commandId, products, palletsData) {
         }
     });
 
-    const transportCostTotal = (parseFloat(transportEl ? transportEl.value : 0) || 0) * exchangeRate;
+    // --- CALCUL NOU CU REDUCERE ---
+    const transportRaw = parseFloat(transportEl ? transportEl.value : 0) || 0;
+    const discountRaw = parseFloat(discountEl ? discountEl.value : 0) || 0;
+
+    const transportCostTotal = transportRaw * exchangeRate;
+    const discountTotal = discountRaw * exchangeRate;
+
+    // Aplicăm reducerea la transport
+    const finalTransportCost = transportCostTotal - discountTotal;
     
-    const TARGET_TOTAL = activePalletsTotalCost + transportCostTotal;
+    // Noua Țintă include transportul redus
+    const TARGET_TOTAL = activePalletsTotalCost + finalTransportCost;
 
     console.log(`Cost Paleți Activi: ${activePalletsTotalCost.toFixed(2)}`);
-    console.log(`Cost Transport: ${transportCostTotal.toFixed(2)}`);
+    console.log(`Cost Transport Inițial: ${transportCostTotal.toFixed(2)}`);
+    console.log(`Reducere Aplicată: -${discountTotal.toFixed(2)}`);
+    console.log(`Cost Transport Final (de distribuit): ${finalTransportCost.toFixed(2)}`);
     console.log(`TOTAL DE DISTRIBUIT: ${TARGET_TOTAL.toFixed(2)}`);
 
     // 5. Calcul Brut per Produs
     let currentCalculatedSum = 0;
     const resultsBuffer = [];
     
-    const transportPerUnit = transportCostTotal / totalValidQty;
+    // Transportul (ajustat cu reducere) se împarte exact la numărul de produse valide
+    const transportPerUnit = finalTransportCost / totalValidQty;
 
     validProducts.forEach(p => {
         const pal = palletMap[p.manifestSku];
@@ -372,7 +382,6 @@ document.addEventListener('DOMContentLoaded', async () => {
                         const asins = command.products.map(p => p.asin);
                         const detailsMap = await fetchProductDetailsInBulk(asins);
                         
-                        // --- FIX AICI: Folosim 'command' în loc de 'commandData' ---
                         detailsContainer.innerHTML = templates.financiarDetails(command, matchedFinancial, detailsMap, palletsData, calculatedData);
                         alert("Calcule efectuate cu succes!");
                     }
