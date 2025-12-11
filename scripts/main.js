@@ -8,7 +8,7 @@ import {
     handleAsinUpdate, 
     saveFinancialDetails, 
     generateNIR,
-    sendToBalance // <-- Importat nou
+    sendToBalance 
 } from './api.js'; 
 import { AppState, fetchDataAndSyncState, fetchProductDetailsInBulk } from './data.js';
 import { templates } from './templates.js';
@@ -372,7 +372,8 @@ document.addEventListener('DOMContentLoaded', async () => {
                         const asins = command.products.map(p => p.asin);
                         const detailsMap = await fetchProductDetailsInBulk(asins);
                         
-                        detailsContainer.innerHTML = templates.financiarDetails(commandData, matchedFinancial, detailsMap, palletsData, calculatedData);
+                        // --- FIX AICI: Folosim 'command' în loc de 'commandData' ---
+                        detailsContainer.innerHTML = templates.financiarDetails(command, matchedFinancial, detailsMap, palletsData, calculatedData);
                         alert("Calcule efectuate cu succes!");
                     }
                 } catch(e) {
