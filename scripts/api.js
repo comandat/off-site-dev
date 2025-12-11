@@ -81,10 +81,16 @@ export async function sendToBalance(commandId, buttonElement) {
             throw new Error("Nu există date valide de trimis.");
         }
 
-        // Calculăm data (1 a lunii trecute, ca la NIR, sau curentă - depinde de preferință)
+        // Calculăm data (1 a lunii trecute, ca la NIR)
         const now = new Date();
         const prevMonthFirstDay = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-        const dateString = prevMonthFirstDay.toISOString().split('T')[0];
+        
+        // FIX: Construim manual data YYYY-MM-DD folosind ora locală
+        // toISOString() convertește la UTC și poate da ziua precedentă din cauza fusului orar
+        const year = prevMonthFirstDay.getFullYear();
+        const month = String(prevMonthFirstDay.getMonth() + 1).padStart(2, '0');
+        const day = String(prevMonthFirstDay.getDate()).padStart(2, '0');
+        const dateString = `${year}-${month}-${day}`;
 
         const payload = {
             action: "insert_nir",
