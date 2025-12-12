@@ -154,7 +154,11 @@ financiarProductTable: (products, detailsMap, commandId, calculatedData = null) 
 
             const errors = [];
             if (!manifestSku) errors.push("Lipsește ManifestSKU");
-            if (!title || title === "N/A" || title.length < 10) errors.push("Titlu RO lipsă sau invalid");
+            if (!title || title === "N/A" || title.length < 10) {
+                errors.push("Titlu RO lipsă sau invalid");
+            } else if (title.length > 255) {
+                errors.push("Titlu RO prea lung (> 255 caractere)");
+            }
             if (price <= 0) errors.push("Preț estimat <= 0");
 
             // Date calculate
