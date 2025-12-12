@@ -345,6 +345,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                     discount: discount,
                     currency: currency,
                     exchangerate: rate,
+                    nirnumber: existingNirNumber
                 };
 
                 await saveFinancialDetails(payload, actionButton);
