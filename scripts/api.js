@@ -339,6 +339,50 @@ export async function generateNIR(commandId, buttonElement) {
         const command = AppState.getCommands().find(c => c.id === commandId);
         if (!command) throw new Error('Comanda nu a fost găsită.');
 
+        // --- LOGICA NOUA PENTRU NUMAR NIR (folosind nirnumber) ---
+        const allFinancials = AppState.getFinancialData();
+        
+        // Căutăm datele financiare pentru comanda curentă
+        let currentFinancials = allFinancials.find(f => f.orderid === commandId) || {};
+        
+        // Verificăm dacă avem deja un număr (cheia este acum 'nirnumber')
+        let nirNumber = currentFinancials.nirnumber; 
+
+        if (!nirNumber) {
+            // Dacă nu avem număr, calculăm următorul
+            // Căutăm MAXIMUL existent în toate datele încărcate folosind cheia 'nirnumber'
+            const maxUsedNir = allFinancials.reduce((max, item) => {
+                const val = parseInt(item.nirnumber || 0);
+                return val > max ? val : max;
+            }, 9); // Pornim de la 9, astfel încât primul număr generat să fie 10
+
+            nirNumber = maxUsedNir + 1;
+
+            // PREGĂTIM SALVAREA AUTOMATĂ
+            const payloadToSave = {
+                orderid: commandId,
+                totalordercostwithoutvat: document.getElementById('financiar-total-fara-tva')?.value || currentFinancials.totalordercostwithoutvat || 0,
+                totalordercostwithvat: document.getElementById('financiar-total-cu-tva')?.value || currentFinancials.totalordercostwithvat || 0,
+                transportcost: document.getElementById('financiar-cost-transport')?.value || currentFinancials.transportcost || 0,
+                discount: document.getElementById('financiar-reducere')?.value || currentFinancials.discount || 0,
+                currency: document.getElementById('financiar-moneda')?.value || currentFinancials.currency || 'RON',
+                exchangerate: document.getElementById('financiar-rata-schimb')?.value || currentFinancials.exchangerate || 1,
+                
+                // AICI FOLOSIM NUMELE NOU AL COLOANEI
+                nirnumber: nirNumber
+            };
+
+            console.log(`Se salvează NIR nou: ${nirNumber} (coloana nirnumber) pentru comanda ${commandId}`);
+            
+            // Salvăm în baza de date
+            const saveSuccess = await saveFinancialDetails(payloadToSave, buttonElement);
+            
+            if (!saveSuccess) {
+                throw new Error("Nu s-a putut salva numărul NIR în baza de date. Generarea a fost anulată.");
+            }
+        }
+        // --- SFARSIT LOGICA NOUA ---
+
         const asins = command.products.map(p => p.asin);
         const detailsMap = await fetchProductDetailsInBulk(asins);
         
@@ -355,7 +399,7 @@ export async function generateNIR(commandId, buttonElement) {
             const unitCost = calcData.unitCost;
             const details = detailsMap[p.asin] || {};
             const rawTitle = (details.other_versions?.['romanian']?.title || details.title || "N/A").trim();
-            const roTitle = removeDiacritics(rawTitle); // Eliminăm diacriticele pentru PDF
+            const roTitle = (rawTitle).normalize("NFD").replace(/[\u0300-\u036f]/g, ""); // Fără diacritice
 
             const conditions = [
                 { qty: p.bncondition, codeSuffix: "CN" }, 
@@ -402,7 +446,9 @@ export async function generateNIR(commandId, buttonElement) {
         
         doc.setFontSize(14);
         doc.setFont("helvetica", "bold");
-        doc.text("NOTA DE RECEPTIE SI CONSTATARE DE DIFERENTE", 105, 25, { align: "center" });
+        // Titlu cu numărul NIR
+        doc.text(`NOTA DE RECEPTIE SI CONSTATARE DE DIFERENTE (NIR: ${nirNumber})`, 105, 25, { align: "center" });
+        
         doc.setDrawColor(textColor);
         doc.line(14, 27, 196, 27); 
 
@@ -419,8 +465,10 @@ export async function generateNIR(commandId, buttonElement) {
         const lineHeight = 5;
         
         doc.text(`Numar Factura: ${command.id}`, 14, infoY);
-        doc.text(`Data: ${nirDate}`, 14, infoY + lineHeight);
-        doc.text(`Gestiune: Principal`, 14, infoY + lineHeight * 2);
+        doc.text(`Data NIR: ${nirDate}`, 14, infoY + lineHeight);
+        // Afișare număr NIR explicit și în corpul documentului
+        doc.text(`Numar NIR: ${nirNumber}`, 14, infoY + lineHeight * 2);
+        doc.text(`Gestiune: Principal`, 14, infoY + lineHeight * 3);
         
         const rightColX = 120;
         doc.text(`Furnizor: JLI Trading Limited`, rightColX, infoY);
@@ -428,7 +476,7 @@ export async function generateNIR(commandId, buttonElement) {
 
         // Tabel Produse
         doc.autoTable({
-            startY: 55,
+            startY: 60,
             head: [['Cod Articol', 'Denumire', 'U.M.', 'Cant', 'Pret Unitar', 'Valoare', 'TVA (21%)']],
             body: rows,
             theme: 'grid', 
@@ -494,8 +542,7 @@ export async function generateNIR(commandId, buttonElement) {
         doc.text("Semnatura: _______________________", rightBlockX, footerY + 10 + footerLineHeight * 2);
 
         const safeName = command.id.replace(/[^a-z0-9_\-]/gi, '_'); 
-        doc.save(`NIR_${safeName}.pdf`);
-        alert("NIR generat cu succes!");
+        doc.save(`NIR_${nirNumber}_${safeName}.pdf`);
 
     } catch (error) {
         console.error('Eroare la generarea NIR:', error);
