@@ -598,7 +598,7 @@ if (action === 'save-financial') {
         }
     });
 
-    mainContent.addEventListener('change', async (event) => {
+mainContent.addEventListener('change', async (event) => {
         if (event.target.id === 'financiar-command-select') {
             const selectedCommandId = event.target.value;
             state.currentCommandId = selectedCommandId; 
@@ -607,21 +607,21 @@ if (action === 'save-financial') {
             const saveBtn = document.getElementById('save-financial-btn');
             const nirBtn = document.getElementById('generate-nir-btn');
             const runCalcBtn = document.getElementById('run-calculations-btn');
-            const sendBalanceBtn = document.getElementById('send-balance-btn'); // REFERINȚĂ NOUĂ
+            const sendBalanceBtn = document.getElementById('send-balance-btn');
             
             if (!detailsContainer) return;
 
             if (saveBtn) saveBtn.disabled = !selectedCommandId;
             if (nirBtn) nirBtn.disabled = !selectedCommandId;
             if (runCalcBtn) runCalcBtn.disabled = !selectedCommandId;
-            if (sendBalanceBtn) sendBalanceBtn.disabled = !selectedCommandId; // ACTIVARE BUTON
+            if (sendBalanceBtn) sendBalanceBtn.disabled = !selectedCommandId;
 
             if (!selectedCommandId) {
                 detailsContainer.innerHTML = templates.financiarDetails(null, null, null, null);
                 return;
             }
 
-            detailsContainer.innerHTML = '<div class="text-center p-8 text-gray-500">Se încarcă datele, produsele și paleții...</div>';
+            detailsContainer.innerHTML = '<div class="text-center p-8 text-gray-500">Se actualizează datele, produsele și paleții...</div>';
 
             const commandData = AppState.getCommands().find(c => c.id === selectedCommandId);
             
@@ -636,6 +636,12 @@ if (action === 'save-financial') {
             const palletsData = await fetchPalletsData(selectedCommandId);
 
             const asins = commandData.products.map(p => p.asin);
+
+            // --- MODIFICARE: Ștergem cache-ul pentru a forța reîncărcarea detaliilor ---
+            // Astfel, dacă ai corectat un titlu sau o poză, datele se actualizează imediat aici.
+            asins.forEach(asin => AppState.clearProductCache(asin));
+            // --------------------------------------------------------------------------
+
             const detailsMap = await fetchProductDetailsInBulk(asins);
 
             const calculatedData = state.financialCalculations ? state.financialCalculations[selectedCommandId] : null;
