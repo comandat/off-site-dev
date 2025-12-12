@@ -41,13 +41,10 @@ export async function renderView(viewId, context = {}) {
                 // 1. Sincronizăm lista de comenzi
                 await fetchDataAndSyncState();
                 
-                // 2. Verificăm dacă avem datele financiare în cache
-                const storedFinancialData = AppState.getFinancialData();
-                
-                if (!storedFinancialData || storedFinancialData.length === 0) {
-                    mainContent.innerHTML = `<div class="p-8 text-center text-gray-500">Se preiau datele financiare...</div>`;
-                    await fetchFinancialData();
-                }
+                // 2. FORȚĂM actualizarea datelor financiare de fiecare dată când intrăm pe pagină
+                // Am eliminat verificarea de cache (if !storedData) pentru a cere mereu datele proaspete
+                mainContent.innerHTML = `<div class="p-8 text-center text-gray-500">Se actualizează datele financiare...</div>`;
+                await fetchFinancialData();
 
                 // 3. Randăm shell-ul (dropdown + container gol pt detalii)
                 html = templates.financiar(AppState.getCommands());
