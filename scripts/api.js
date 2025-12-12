@@ -279,7 +279,11 @@ export async function handleAsinUpdate(actionButton) {
 
 // --- Salvare Date Financiare ---
 export async function saveFinancialDetails(payload, buttonElement) {
+    // Salvăm starea inițială
     const originalHTML = buttonElement.innerHTML;
+    const originalClasses = buttonElement.className; // Salvăm clasele pentru a reveni la culoarea albastră
+    
+    // 1. STARE LOADING
     buttonElement.disabled = true;
     buttonElement.innerHTML = '<div class="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin mx-auto"></div>';
 
@@ -295,6 +299,7 @@ export async function saveFinancialDetails(payload, buttonElement) {
             throw new Error(`Eroare HTTP: ${response.status}. ${errorText}`);
         }
 
+        // Actualizare cache local (AppState)
         const currentData = AppState.getFinancialData();
         let found = false;
         const updatedData = currentData.map(item => {
@@ -311,7 +316,21 @@ export async function saveFinancialDetails(payload, buttonElement) {
         
         AppState.setFinancialData(updatedData);
 
-        alert('Datele financiare au fost salvate cu succes!');
+        // 2. STARE SUCCES (Verde + Bifa)
+        // Eliminăm clasele de albastru și adăugăm verde
+        buttonElement.classList.remove('bg-blue-600', 'hover:bg-blue-700');
+        buttonElement.classList.add('bg-green-600', 'hover:bg-green-700'); // Asigură-te că ai aceste clase în Tailwind sau CSS, de obicei există
+        
+        buttonElement.innerHTML = `
+            <div class="flex items-center justify-center gap-2">
+                <span class="material-icons text-white">check_circle</span>
+                <span>Salvat!</span>
+            </div>
+        `;
+
+        // Așteptăm 2 secunde
+        await new Promise(resolve => setTimeout(resolve, 2000));
+
         return true;
 
     } catch (error) {
@@ -319,8 +338,11 @@ export async function saveFinancialDetails(payload, buttonElement) {
         alert(`Eroare la salvare: ${error.message}`);
         return false;
     } finally {
+        // 3. REVENIRE LA STAREA INIȚIALĂ
+        // Indiferent dacă a fost eroare sau succes (după timeout), revenim la forma inițială
+        buttonElement.className = originalClasses; // Restaurăm clasele originale (albastru)
+        buttonElement.innerHTML = originalHTML;    // Restaurăm textul/iconița originale
         buttonElement.disabled = false;
-        buttonElement.innerHTML = originalHTML;
     }
 }
 
