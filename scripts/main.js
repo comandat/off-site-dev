@@ -328,28 +328,36 @@ document.addEventListener('DOMContentLoaded', async () => {
                 return; 
             }
             
-            if (action === 'save-financial') {
-                const orderId = document.getElementById('financiar-order-id').value;
-                const totalNoVat = document.getElementById('financiar-total-fara-tva').value;
-                const totalWithVat = document.getElementById('financiar-total-cu-tva').value;
-                const transport = document.getElementById('financiar-cost-transport').value;
-                const discount = document.getElementById('financiar-reducere').value;
-                const currency = document.getElementById('financiar-moneda').value;
-                const rate = document.getElementById('financiar-rata-schimb').value;
+           // scripts/main.js - în interiorul listener-ului (aprox. linia 330)
 
-                const payload = {
-                    orderid: orderId,
-                    totalordercostwithoutvat: totalNoVat,
-                    totalordercostwithvat: totalWithVat,
-                    transportcost: transport,
-                    discount: discount,
-                    currency: currency,
-                    exchangerate: rate,
-                    nirnumber: existingNirNumber
-                };
+if (action === 'save-financial') {
+    const orderId = document.getElementById('financiar-order-id').value;
+    const totalNoVat = document.getElementById('financiar-total-fara-tva').value;
+    const totalWithVat = document.getElementById('financiar-total-cu-tva').value;
+    const transport = document.getElementById('financiar-cost-transport').value;
+    const discount = document.getElementById('financiar-reducere').value;
+    const currency = document.getElementById('financiar-moneda').value;
+    const rate = document.getElementById('financiar-rata-schimb').value;
 
-                await saveFinancialDetails(payload, actionButton);
-            }
+    // --- FIX: Definim existingNirNumber ---
+    // Căutăm datele financiare existente în AppState pentru comanda curentă
+    const currentFinancials = AppState.getFinancialData().find(f => f.orderid === state.currentCommandId) || {};
+    const existingNirNumber = currentFinancials.nirnumber || null;
+    // --------------------------------------
+
+    const payload = {
+        orderid: orderId,
+        totalordercostwithoutvat: totalNoVat,
+        totalordercostwithvat: totalWithVat,
+        transportcost: transport,
+        discount: discount,
+        currency: currency,
+        exchangerate: rate,
+        nirnumber: existingNirNumber // Acum variabila este definită
+    };
+
+    await saveFinancialDetails(payload, actionButton);
+}
             
             // --- LOGICA BUTONULUI RULEAZĂ CALCULE ---
             if (action === 'run-calculations') {
