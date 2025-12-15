@@ -384,8 +384,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 }
             }
 
-            // Alte acțiuni (Gata de listat, Editare ASIN, Save, Traducere etc.)
-            // ... (Păstrează logica existentă pentru ready-to-list, edit-asin, etc.) ...
+            // Alte acțiuni
              if (action === 'ready-to-list-single') {
                 const asin = actionButton.dataset.asin;
                 const orderId = actionButton.dataset.orderId;
@@ -487,8 +486,11 @@ document.addEventListener('DOMContentLoaded', async () => {
             const financialData = AppState.getFinancialData().find(f => f.orderid === cmdId) || { orderid: cmdId };
             const palletsData = await fetchPalletsData(cmdId);
             
-            // Golim cache-ul pt a forța update
-            cmdData.products.forEach(p => AppState.clearProductCache(p.asin));
+            // Golim cache-ul pt a forța update la preturi/titluri
+            if(cmdData && cmdData.products) {
+                cmdData.products.forEach(p => AppState.clearProductCache(p.asin));
+            }
+            
             const detailsMap = await fetchProductDetailsInBulk(cmdData.products.map(p => p.asin));
             const calculatedData = state.financialCalculations ? state.financialCalculations[cmdId] : null;
 
