@@ -21,7 +21,8 @@ export const AppState = {
     clearProductCache: (asin) => {
         if (asin && productCache[asin]) {
             delete productCache[asin];
-            console.log(`Cache invalidat pentru ASIN: ${asin}`);
+            // Am comentat linia de log pentru a păstra consola curată
+            // console.log(`Cache invalidat pentru ASIN: ${asin}`);
         }
     },
 
@@ -79,8 +80,21 @@ export async function fetchProductDetailsInBulk(asins) {
         if (!response.ok) throw new Error(`Eroare la preluarea detaliilor`);
         const responseData = await response.json();
         const bulkData = responseData?.get_product_details_dynamically_test?.products || {};
+        
         asinsToFetch.forEach(asin => {
             const productData = bulkData[asin] || { title: 'N/A', images: [], description: '', features: {}, brand: '', price: '', category: '', categoryId: null, other_versions: {} };
+            
+            // --- FIX MIXED CONTENT (HTTP -> HTTPS) ---
+            if (productData.images && Array.isArray(productData.images)) {
+                productData.images = productData.images.map(img => {
+                    if (img && typeof img === 'string' && img.startsWith('http://')) {
+                        return img.replace(/^http:\/\//i, 'https://');
+                    }
+                    return img;
+                });
+            }
+            // -----------------------------------------
+
             AppState.setProductDetails(asin, productData);
             results[asin] = productData;
         });
@@ -150,11 +164,9 @@ export async function fetchFinancialData() {
     }
 }
 
-// --- NOU: Fetch Pallets Data ---
 export async function fetchPalletsData(orderId) {
     if (!orderId) return [];
     try {
-        // Presupunem POST body { orderId } conform convenției proiectului
         const response = await fetch(GET_PALLETS_WEBHOOK_URL, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -167,7 +179,6 @@ export async function fetchPalletsData(orderId) {
         }
         
         const data = await response.json();
-        // Presupunem că webhook-ul returnează o listă sau un obiect cu proprietatea data
         return Array.isArray(data) ? data : (data.data || []);
     } catch (error) {
         console.error("Eroare fetch pallets:", error);
