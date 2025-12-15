@@ -21,8 +21,8 @@ export const AppState = {
     clearProductCache: (asin) => {
         if (asin && productCache[asin]) {
             delete productCache[asin];
-            // Am comentat linia de log pentru a păstra consola curată
-            // console.log(`Cache invalidat pentru ASIN: ${asin}`);
+            // Păstrăm log-ul activ pentru debugging
+            console.log(`Cache invalidat pentru ASIN: ${asin}`);
         }
     },
 
