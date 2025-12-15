@@ -48,15 +48,15 @@ async function fetchPalletsData(commandId) {
     }
 }
 
-// --- LOGICA DE CALCUL FINANCIAR FINALĂ (FILTRARE STRICTĂ) ---
+// --- LOGICA DE CALCUL FINANCIAR (CU RAPORTARE ERORI) ---
 function performFinancialCalculations(commandId, products, palletsData) {
-    console.group("--- START CALCULE FINANCIARE (CU REDUCERE TRANSPORT) ---");
+    console.group("--- START CALCULE FINANCIARE ---");
 
     // 1. Preluare input-uri financiare
     const currencyEl = document.getElementById('financiar-moneda');
     const rateEl = document.getElementById('financiar-rata-schimb');
     const transportEl = document.getElementById('financiar-cost-transport');
-    const discountEl = document.getElementById('financiar-reducere'); // <--- Preluare Reducere
+    const discountEl = document.getElementById('financiar-reducere');
     
     const currency = currencyEl ? currencyEl.value : 'RON';
     let exchangeRate = 1;
@@ -64,75 +64,73 @@ function performFinancialCalculations(commandId, products, palletsData) {
     if (currency !== 'RON') {
         const rawRate = rateEl ? parseFloat(rateEl.value) : 0;
         if (!rawRate || rawRate <= 0 || rawRate === 1) {
-             alert("EROARE: Cursul valutar este invalid.");
+             alert("EROARE CRITICĂ: Cursul valutar este invalid sau nesetat.");
              console.groupEnd();
              return null;
         }
         exchangeRate = rawRate;
     }
 
-    // 2. Mapare Costuri Paleți (DOAR PENTRU COMANDA CURENTĂ)
+    // 2. Mapare Costuri Paleți
     const palletMap = {}; 
-    
     palletsData.forEach(p => {
-        if (String(p.orderid) !== String(commandId)) {
-            return; 
-        }
-
+        if (String(p.orderid) !== String(commandId)) return; 
         if(p.manifestsku) {
              if (!palletMap[p.manifestsku]) {
                  const cost = parseFloat(p.costwithoutvat || 0) * exchangeRate;
-                 palletMap[p.manifestsku] = { 
-                     cost: cost, 
-                     totalSales: 0, 
-                     hasItems: false 
-                 };
+                 palletMap[p.manifestsku] = { cost: cost, totalSales: 0, hasItems: false };
              }
         }
     });
 
-    // 3. Identificare Produse Valide
+    // 3. Validare Produse - COLECTARE ERORI
     const validProducts = [];
+    const errorMessages = []; // Aici strângem toate problemele
     let totalValidQty = 0;
-    let hasCriticalErrors = false;
 
     for (const p of products) {
         const totalReceived = (p.bncondition || 0) + (p.vgcondition || 0) + (p.gcondition || 0) + (p.broken || 0);
         const qty = totalReceived - (p.broken || 0);
 
+        // Ignorăm produsele care nu există fizic (cantitate 0)
         if (qty <= 0) continue; 
 
         const details = AppState.getProductDetails(p.asin) || {};
         const price = parseFloat(details.price) || 0;
         const manifestSku = p.manifestsku;
 
-        if (!manifestSku || price <= 0) {
-            hasCriticalErrors = true; 
-            break; 
+        // Verificări punctuale
+        if (!manifestSku) {
+            errorMessages.push(`- Produs ${p.asin}: Lipsește Manifest SKU`);
+        } else if (price <= 0) {
+            errorMessages.push(`- Produs ${p.asin} (SKU: ${manifestSku}): Preț estimat este 0`);
+        } else {
+            // Dacă totul e ok, îl adăugăm la calcul
+            if (palletMap[manifestSku]) {
+                palletMap[manifestSku].totalSales += (price * qty);
+                palletMap[manifestSku].hasItems = true;
+            }
+            validProducts.push({ ...p, price, qty, manifestSku });
+            totalValidQty += qty;
         }
-
-        if (palletMap[manifestSku]) {
-            palletMap[manifestSku].totalSales += (price * qty);
-            palletMap[manifestSku].hasItems = true;
-        }
-        
-        validProducts.push({ ...p, price, qty, manifestSku });
-        totalValidQty += qty;
     }
 
-    if (hasCriticalErrors) {
-        alert("Eroare: Există produse cu preț 0 sau fără ManifestSKU.");
+    // --- STOP SI RAPORTARE ERORI ---
+    if (errorMessages.length > 0) {
+        const msg = `Nu se pot efectua calculele! Au fost găsite următoarele probleme:\n\n${errorMessages.slice(0, 15).join('\n')}${errorMessages.length > 15 ? '\n... și altele.' : ''}\n\nVă rugăm să corectați prețul sau datele acestor produse și să încercați din nou.`;
+        alert(msg);
+        console.warn("Calcule oprite din cauza erorilor:", errorMessages);
         console.groupEnd();
         return null;
     }
 
     if (totalValidQty === 0) {
-        alert("Nu există produse valide (cantitate > 0).");
+        alert("Nu există produse valide (cu cantitate > 0) pentru a efectua calculul.");
         console.groupEnd();
         return null;
     }
 
-    // 4. Calculăm ȚINTA REALĂ (Paleți + Transport - Reducere)
+    // 4. Calculăm ȚINTA REALĂ
     let activePalletsTotalCost = 0;
     Object.keys(palletMap).forEach(sku => {
         if (palletMap[sku].hasItems) {
@@ -140,30 +138,18 @@ function performFinancialCalculations(commandId, products, palletsData) {
         }
     });
 
-    // --- CALCUL NOU CU REDUCERE ---
     const transportRaw = parseFloat(transportEl ? transportEl.value : 0) || 0;
     const discountRaw = parseFloat(discountEl ? discountEl.value : 0) || 0;
 
     const transportCostTotal = transportRaw * exchangeRate;
     const discountTotal = discountRaw * exchangeRate;
-
-    // Aplicăm reducerea la transport
     const finalTransportCost = transportCostTotal - discountTotal;
     
-    // Noua Țintă include transportul redus
     const TARGET_TOTAL = activePalletsTotalCost + finalTransportCost;
-
-    console.log(`Cost Paleți Activi: ${activePalletsTotalCost.toFixed(2)}`);
-    console.log(`Cost Transport Inițial: ${transportCostTotal.toFixed(2)}`);
-    console.log(`Reducere Aplicată: -${discountTotal.toFixed(2)}`);
-    console.log(`Cost Transport Final (de distribuit): ${finalTransportCost.toFixed(2)}`);
-    console.log(`TOTAL DE DISTRIBUIT: ${TARGET_TOTAL.toFixed(2)}`);
 
     // 5. Calcul Brut per Produs
     let currentCalculatedSum = 0;
     const resultsBuffer = [];
-    
-    // Transportul (ajustat cu reducere) se împarte exact la numărul de produse valide
     const transportPerUnit = finalTransportCost / totalValidQty;
 
     validProducts.forEach(p => {
@@ -193,8 +179,6 @@ function performFinancialCalculations(commandId, products, palletsData) {
 
     // 6. Corecția de "Centimă"
     const diff = TARGET_TOTAL - currentCalculatedSum;
-    console.log(`Diferență rotunjire: ${diff.toFixed(4)} RON`);
-
     if (resultsBuffer.length > 0) {
         resultsBuffer[0].lineTotalCost += diff;
     }
@@ -217,6 +201,7 @@ function performFinancialCalculations(commandId, products, palletsData) {
 document.addEventListener('DOMContentLoaded', async () => {
     const mainContent = document.getElementById('main-content');
 
+    // Listeneri globali
     document.body.addEventListener('click', async (event) => {
         const target = event.target;
         const sidebarBtn = target.closest('.sidebar-btn');
@@ -243,6 +228,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         const descModeButton = target.closest('[data-action="toggle-description-mode"]');
         const thumbnail = target.closest('[data-action="select-thumbnail"]');
 
+        // Navigare Simplă
         if (commandCard) {
             state.currentSearchQuery = '';
             state.currentCommandId = commandCard.dataset.commandId;
@@ -267,25 +253,17 @@ document.addEventListener('DOMContentLoaded', async () => {
             return;
         }
 
-        if (versionButton) {
-            loadTabData(versionButton.dataset.versionKey);
-            return;
-        }
-        if (descModeButton) {
-            handleDescriptionToggle(descModeButton);
-            return;
-        }
+        // Tab-uri și UI
+        if (versionButton) { loadTabData(versionButton.dataset.versionKey); return; }
+        if (descModeButton) { handleDescriptionToggle(descModeButton); return; }
         if (thumbnail) {
             const newImageSrc = thumbnail.dataset.src;
             if (!newImageSrc) return;
             const mainImg = document.getElementById('main-image');
             if (mainImg) mainImg.src = newImageSrc;
-            
             document.querySelectorAll('.thumbnail-image').forEach(img => {
                 const parent = img.closest('[data-image-src]');
-                const isSelected = parent && parent.dataset.imageSrc === newImageSrc;
-                img.classList.toggle('border-2', isSelected);
-                img.classList.toggle('border-blue-600', isSelected);
+                img.classList.toggle('border-blue-600', parent && parent.dataset.imageSrc === newImageSrc);
             });
             return;
         }
@@ -295,6 +273,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             return;
         }
 
+        // Acțiuni Butoane
         if (actionButton) {
             const action = actionButton.dataset.action;
 
@@ -302,12 +281,6 @@ document.addEventListener('DOMContentLoaded', async () => {
                 event.preventDefault(); 
                 const commandId = actionButton.dataset.commandId;
                 const productId = actionButton.dataset.productId; 
-
-                if (!commandId || !productId) {
-                    alert('Eroare: ID-ul comenzii sau al produsului lipsește.');
-                    return;
-                }
-                
                 state.previousView = state.currentView; 
                 
                 const command = AppState.getCommands().find(c => c.id === commandId);
@@ -317,59 +290,33 @@ document.addEventListener('DOMContentLoaded', async () => {
                     state.currentCommandId = commandId;
                     state.currentManifestSKU = product.manifestsku || 'No ManifestSKU';
                     state.currentProductId = productId;
-                    
-                    await renderView('produs-detaliu', {
-                        commandId: state.currentCommandId,
-                        productId: state.currentProductId
-                    });
-                } else {
-                    alert('Eroare: Nu s-a putut găsi produsul pentru navigare.');
+                    await renderView('produs-detaliu', { commandId: state.currentCommandId, productId: state.currentProductId });
                 }
                 return; 
             }
             
-           // scripts/main.js - în interiorul listener-ului (aprox. linia 330)
-
-if (action === 'save-financial') {
-    const orderId = document.getElementById('financiar-order-id').value;
-    const totalNoVat = document.getElementById('financiar-total-fara-tva').value;
-    const totalWithVat = document.getElementById('financiar-total-cu-tva').value;
-    const transport = document.getElementById('financiar-cost-transport').value;
-    const discount = document.getElementById('financiar-reducere').value;
-    const currency = document.getElementById('financiar-moneda').value;
-    const rate = document.getElementById('financiar-rata-schimb').value;
-
-    // --- FIX: Definim existingNirNumber ---
-    // Căutăm datele financiare existente în AppState pentru comanda curentă
-    const currentFinancials = AppState.getFinancialData().find(f => f.orderid === state.currentCommandId) || {};
-    const existingNirNumber = currentFinancials.nirnumber || null;
-    // --------------------------------------
-
-    const payload = {
-        orderid: orderId,
-        totalordercostwithoutvat: totalNoVat,
-        totalordercostwithvat: totalWithVat,
-        transportcost: transport,
-        discount: discount,
-        currency: currency,
-        exchangerate: rate,
-        nirnumber: existingNirNumber // Acum variabila este definită
-    };
-
-    await saveFinancialDetails(payload, actionButton);
-}
+            if (action === 'save-financial') {
+                const currentFinancials = AppState.getFinancialData().find(f => f.orderid === state.currentCommandId) || {};
+                const payload = {
+                    orderid: document.getElementById('financiar-order-id').value,
+                    totalordercostwithoutvat: document.getElementById('financiar-total-fara-tva').value,
+                    totalordercostwithvat: document.getElementById('financiar-total-cu-tva').value,
+                    transportcost: document.getElementById('financiar-cost-transport').value,
+                    discount: document.getElementById('financiar-reducere').value,
+                    currency: document.getElementById('financiar-moneda').value,
+                    exchangerate: document.getElementById('financiar-rata-schimb').value,
+                    nirnumber: currentFinancials.nirnumber || null
+                };
+                await saveFinancialDetails(payload, actionButton);
+            }
             
-            // --- LOGICA BUTONULUI RULEAZĂ CALCULE ---
             if (action === 'run-calculations') {
                 const commandId = state.currentCommandId;
-                if (!commandId) {
-                    alert('Selectați o comandă mai întâi.');
-                    return;
-                }
+                if (!commandId) { alert('Selectați o comandă mai întâi.'); return; }
 
                 const command = AppState.getCommands().find(c => c.id === commandId);
                 actionButton.disabled = true;
-                actionButton.textContent = 'Se calculează...';
+                actionButton.textContent = 'Se verifică datele...';
                 
                 try {
                     const palletsData = await fetchPalletsData(commandId);
@@ -379,14 +326,14 @@ if (action === 'save-financial') {
                         if (!state.financialCalculations) state.financialCalculations = {};
                         state.financialCalculations[commandId] = calculatedData;
                         
+                        // Re-randare tabel cu datele calculate
                         const detailsContainer = document.getElementById('financiar-details-container');
-                        
                         const financialDataList = AppState.getFinancialData();
                         let matchedFinancial = financialDataList.find(item => item.orderid === commandId) || { orderid: commandId };
                         
-                         matchedFinancial.currency = document.getElementById('financiar-moneda').value;
-                         matchedFinancial.exchangerate = document.getElementById('financiar-rata-schimb').value;
-                         matchedFinancial.transportcost = document.getElementById('financiar-cost-transport').value;
+                        matchedFinancial.currency = document.getElementById('financiar-moneda').value;
+                        matchedFinancial.exchangerate = document.getElementById('financiar-rata-schimb').value;
+                        matchedFinancial.transportcost = document.getElementById('financiar-cost-transport').value;
                         
                         const asins = command.products.map(p => p.asin);
                         const detailsMap = await fetchProductDetailsInBulk(asins);
@@ -396,7 +343,7 @@ if (action === 'save-financial') {
                     }
                 } catch(e) {
                     console.error(e);
-                    alert("A apărut o eroare la calcule: " + e.message);
+                    alert("Eroare neașteptată: " + e.message);
                 } finally {
                     actionButton.disabled = false;
                     actionButton.innerHTML = '<span class="material-icons text-sm">calculate</span><span>Rulează Calcule</span>';
@@ -404,39 +351,29 @@ if (action === 'save-financial') {
             }
 
             if (action === 'generate-nir') {
-                if (!state.currentCommandId) {
-                    alert('Selectați o comandă mai întâi.');
-                    return;
-                }
+                if (!state.currentCommandId) { alert('Selectați o comandă mai întâi.'); return; }
                 await generateNIR(state.currentCommandId, actionButton);
             }
 
-            // --- ACȚIUNE NOUĂ: TRIMITE ÎN BALANȚĂ ---
             if (action === 'send-to-balance') {
-                if (!state.currentCommandId) {
-                    alert('Selectați o comandă mai întâi.');
-                    return;
-                }
+                if (!state.currentCommandId) { alert('Selectați o comandă mai întâi.'); return; }
                 await sendToBalance(state.currentCommandId, actionButton);
             }
 
+            // Navigare Înapoi
             if (action === 'back-to-comenzi') {
-                state.currentCommandId = null;
-                state.currentManifestSKU = null;
-                state.currentProductId = null;
-                state.currentSearchQuery = '';
+                state.currentCommandId = null; state.currentManifestSKU = null; state.currentProductId = null; state.currentSearchQuery = '';
                 await renderView('comenzi');
             }
             if (action === 'back-to-paleti') {
-                state.currentManifestSKU = null;
-                state.currentProductId = null;
+                state.currentManifestSKU = null; state.currentProductId = null;
                 await renderView('paleti', { commandId: state.currentCommandId });
             }
             if (action === 'back-to-produse') {
                 state.currentProductId = null;
-                
                 if (state.previousView === 'financiar') {
                     await renderView('financiar');
+                    // Restaurare selecție
                     const select = document.getElementById('financiar-command-select');
                     if (select && state.currentCommandId) {
                         select.value = state.currentCommandId;
@@ -447,237 +384,136 @@ if (action === 'save-financial') {
                 }
             }
 
-            if (action === 'ready-to-list-single') {
+            // Alte acțiuni (Gata de listat, Editare ASIN, Save, Traducere etc.)
+            // ... (Păstrează logica existentă pentru ready-to-list, edit-asin, etc.) ...
+             if (action === 'ready-to-list-single') {
                 const asin = actionButton.dataset.asin;
                 const orderId = actionButton.dataset.orderId;
                 const palletSku = actionButton.dataset.palletSku;
                 const currentStatus = actionButton.dataset.currentStatus === 'true';
                 const setReadyStatus = !currentStatus;
-                const confirmAction = setReadyStatus ? "marcați" : "anulați marcajul pentru";
-
-                if (confirm(`Sigur doriți să ${confirmAction} acest produs (${asin}) ca "Gata pentru Listat"?`)) {
-                    
+                
+                if (confirm(`Sigur doriți să ${setReadyStatus ? "marcați" : "anulați marcajul"} acest produs?`)) {
                     let saveSuccess = true;
-                    if (setReadyStatus === true) { 
-                        console.log("Marcare Gata: Se salvează automat modificările...");
-                        saveSuccess = await saveProductCoreData();
-                        if (!saveSuccess) alert('A apărut o eroare la salvarea modificărilor. Acțiunea "Gata de listat" a fost anulată.');
-                    }
-
+                    if (setReadyStatus) saveSuccess = await saveProductCoreData();
                     if (saveSuccess) {
-                        const payload = { orderId, pallet: palletSku || 'N/A', asin, setReadyStatus };
-                        const success = await sendReadyToList(payload, actionButton);
-                        if (success) {
-                            state.currentSearchQuery = '';
-                            await renderView('produs-detaliu', {
-                                commandId: state.currentCommandId,
-                                productId: state.currentProductId
-                            });
-                        }
+                        const success = await sendReadyToList({ orderId, pallet: palletSku || 'N/A', asin, setReadyStatus }, actionButton);
+                        if (success) await renderView('produs-detaliu', { commandId: state.currentCommandId, productId: state.currentProductId });
                     }
                 }
             }
             if (action === 'ready-to-list-command') {
-                event.preventDefault();
                 const commandId = actionButton.dataset.commandId;
-                const currentStatus = actionButton.dataset.currentStatus === 'true';
-                const setReadyStatus = !currentStatus;
-                const confirmAction = setReadyStatus ? "marcați TOATĂ" : "anulați marcajul pentru TOATĂ";
-                
-                if (confirm(`Sigur doriți să ${confirmAction} comanda?`)) {
-                    const payload = { orderId: commandId, setReadyStatus: setReadyStatus };
-                    const success = await sendReadyToList(payload, actionButton);
-                    if (success) {
-                        state.currentSearchQuery = '';
-                        await renderView('comenzi');
-                    }
+                const setReadyStatus = !(actionButton.dataset.currentStatus === 'true');
+                if (confirm(`Sigur doriți să ${setReadyStatus ? "marcați" : "anulați"} toată comanda?`)) {
+                    const success = await sendReadyToList({ orderId: commandId, setReadyStatus }, actionButton);
+                    if (success) await renderView('comenzi');
                 }
-                actionButton.closest('.dropdown-menu')?.classList.add('hidden');
             }
-
             if (action === 'edit-asin') {
-                event.preventDefault(); 
-                event.stopPropagation(); 
-                
                 const success = await handleAsinUpdate(actionButton);
-                if (success) {
-                    await renderView('produs-detaliu', {
-                        commandId: state.currentCommandId,
-                        productId: state.currentProductId
-                    });
-                }
+                if (success) await renderView('produs-detaliu', { commandId: state.currentCommandId, productId: state.currentProductId });
             }
-
-            if (action === 'refresh-ro-title') {
-                await handleTitleRefresh(actionButton);
-            }
-            
-            if (action === 'refresh-ro-description') {
-                await handleDescriptionRefresh(actionButton);
-            }
-
+            if (action === 'refresh-ro-title') await handleTitleRefresh(actionButton);
+            if (action === 'refresh-ro-description') await handleDescriptionRefresh(actionButton);
             if (action === 'save-product') {
                 const success = await handleProductSave(actionButton);
                 if (success) {
                     if (state.previousView === 'financiar') {
-                        await renderView('financiar');
-                        const select = document.getElementById('financiar-command-select');
-                        if (select && state.currentCommandId) {
-                            select.value = state.currentCommandId;
-                            select.dispatchEvent(new Event('change', { bubbles: true }));
-                        }
+                         await renderView('financiar');
+                         const select = document.getElementById('financiar-command-select');
+                         if(select) { select.value = state.currentCommandId; select.dispatchEvent(new Event('change')); }
                     } else {
                         await renderView('produse', { commandId: state.currentCommandId, manifestSKU: state.currentManifestSKU });
                     }
                 }
             }
-            
             if (action === 'translate-ai-images') {
-                const currentTabKey = state.activeVersionKey; 
-                const asin = document.getElementById('product-asin')?.value;
-                if (!asin) { alert('Eroare: Nu s-a putut găsi ASIN-ul produsului.'); return; }
-
-                const success = await handleImageTranslation(actionButton);
-                
-                if (success) {
-                    AppState.clearProductCache(asin); 
-                    await fetchDataAndSyncState(); 
+                 const currentTabKey = state.activeVersionKey;
+                 const success = await handleImageTranslation(actionButton);
+                 if (success) {
+                    AppState.clearProductCache(document.getElementById('product-asin')?.value);
+                    await fetchDataAndSyncState();
                     await renderView('produs-detaliu', { commandId: state.currentCommandId, productId: state.currentProductId });
                     loadTabData(currentTabKey);
-                }
-                return;
+                 }
             }
-            
             if (['delete-image', 'add-image-url', 'copy-origin-images'].includes(action)) {
                 handleImageActions(action, actionButton);
             }
         }
     });
 
-    mainContent.addEventListener('input', async (event) => {
-        
+    // Listeners Input
+    mainContent.addEventListener('input', (event) => {
         if (event.target.id === 'language-search') {
             const filter = event.target.value.toLowerCase();
-            document.querySelectorAll('#language-list .language-option').forEach(link => {
-                link.style.display = link.textContent.toLowerCase().includes(filter) ? '' : 'none';
-            });
+            document.querySelectorAll('#language-list .language-option').forEach(l => l.style.display = l.textContent.toLowerCase().includes(filter) ? '' : 'none');
         }
         else if (event.target.id === 'product-search-input') {
             state.currentSearchQuery = event.target.value;
-            state.productScrollPosition = 0;
-
-            if (state.searchTimeout) {
-                clearTimeout(state.searchTimeout);
-            }
-
+            clearTimeout(state.searchTimeout);
             state.searchTimeout = setTimeout(async () => {
-                if (state.currentView === 'paleti') {
-                    await renderView('paleti', { commandId: state.currentCommandId });
-                } else if (state.currentView === 'produse') {
-                    await renderView('produse', { commandId: state.currentCommandId, manifestSKU: state.currentManifestSKU });
-                }
-                const searchInput = document.getElementById('product-search-input');
-                if (searchInput) {
-                    searchInput.focus();
-                    const val = searchInput.value;
-                    searchInput.value = '';
-                    searchInput.value = val;
-                }
+                if (state.currentView === 'paleti') await renderView('paleti', { commandId: state.currentCommandId });
+                else if (state.currentView === 'produse') await renderView('produse', { commandId: state.currentCommandId, manifestSKU: state.currentManifestSKU });
+                const inp = document.getElementById('product-search-input');
+                if(inp) { inp.focus(); const v = inp.value; inp.value = ''; inp.value = v; }
             }, 300);
         }
-
-        // --- CALCUL AUTOMAT TVA 21% ---
         else if (event.target.id === 'financiar-total-fara-tva') {
-            const totalFaraTVA = parseFloat(event.target.value) || 0;
-            const totalCuTVA = totalFaraTVA * 1.21; // 21%
-            
             const tvaField = document.getElementById('financiar-total-cu-tva');
-            if (tvaField) {
-                tvaField.value = totalCuTVA.toFixed(2);
-            }
+            if (tvaField) tvaField.value = (parseFloat(event.target.value || 0) * 1.21).toFixed(2);
         }
     });
 
-mainContent.addEventListener('change', async (event) => {
+    // Listener Change (Dropdown Financiar)
+    mainContent.addEventListener('change', async (event) => {
         if (event.target.id === 'financiar-command-select') {
-            const selectedCommandId = event.target.value;
-            state.currentCommandId = selectedCommandId; 
-
-            const detailsContainer = document.getElementById('financiar-details-container');
-            const saveBtn = document.getElementById('save-financial-btn');
-            const nirBtn = document.getElementById('generate-nir-btn');
-            const runCalcBtn = document.getElementById('run-calculations-btn');
-            const sendBalanceBtn = document.getElementById('send-balance-btn');
+            const cmdId = event.target.value;
+            state.currentCommandId = cmdId;
+            const container = document.getElementById('financiar-details-container');
+            const btns = ['save-financial-btn', 'generate-nir-btn', 'run-calculations-btn', 'send-balance-btn'].map(id => document.getElementById(id));
             
-            if (!detailsContainer) return;
-
-            if (saveBtn) saveBtn.disabled = !selectedCommandId;
-            if (nirBtn) nirBtn.disabled = !selectedCommandId;
-            if (runCalcBtn) runCalcBtn.disabled = !selectedCommandId;
-            if (sendBalanceBtn) sendBalanceBtn.disabled = !selectedCommandId;
-
-            if (!selectedCommandId) {
-                detailsContainer.innerHTML = templates.financiarDetails(null, null, null, null);
+            if (!cmdId) {
+                container.innerHTML = templates.financiarDetails(null);
+                btns.forEach(b => { if(b) b.disabled = true; });
                 return;
             }
-
-            detailsContainer.innerHTML = '<div class="text-center p-8 text-gray-500">Se actualizează datele, produsele și paleții...</div>';
-
-            const commandData = AppState.getCommands().find(c => c.id === selectedCommandId);
             
-            const financialDataList = AppState.getFinancialData();
-            let matchedFinancial = financialDataList.find(item => item.orderid === selectedCommandId);
+            btns.forEach(b => { if(b) b.disabled = false; });
+            container.innerHTML = '<div class="text-center p-8 text-gray-500">Se actualizează datele...</div>';
 
-            if (!matchedFinancial) {
-                console.warn(`Nu s-au găsit date financiare pentru comanda ${selectedCommandId}.`);
-                matchedFinancial = { orderid: selectedCommandId };
-            }
+            const cmdData = AppState.getCommands().find(c => c.id === cmdId);
+            const financialData = AppState.getFinancialData().find(f => f.orderid === cmdId) || { orderid: cmdId };
+            const palletsData = await fetchPalletsData(cmdId);
+            
+            // Golim cache-ul pt a forța update
+            cmdData.products.forEach(p => AppState.clearProductCache(p.asin));
+            const detailsMap = await fetchProductDetailsInBulk(cmdData.products.map(p => p.asin));
+            const calculatedData = state.financialCalculations ? state.financialCalculations[cmdId] : null;
 
-            const palletsData = await fetchPalletsData(selectedCommandId);
-
-            const asins = commandData.products.map(p => p.asin);
-
-            // --- MODIFICARE: Ștergem cache-ul pentru a forța reîncărcarea detaliilor ---
-            // Astfel, dacă ai corectat un titlu sau o poză, datele se actualizează imediat aici.
-            asins.forEach(asin => AppState.clearProductCache(asin));
-            // --------------------------------------------------------------------------
-
-            const detailsMap = await fetchProductDetailsInBulk(asins);
-
-            const calculatedData = state.financialCalculations ? state.financialCalculations[selectedCommandId] : null;
-
-            detailsContainer.innerHTML = templates.financiarDetails(commandData, matchedFinancial, detailsMap, palletsData, calculatedData);
+            container.innerHTML = templates.financiarDetails(cmdData, financialData, detailsMap, palletsData, calculatedData);
         }
     });
 
-    mainContent.addEventListener('submit', async (event) => {
-        if (event.target.id === 'upload-form') {
-            const success = await handleUploadSubmit(event);
-            if (success) {
-                await renderView('comenzi');
-            }
+    // Upload & Altele
+    mainContent.addEventListener('submit', async (e) => {
+        if (e.target.id === 'upload-form') {
+            if (await handleUploadSubmit(e)) await renderView('comenzi');
         }
     });
-
-    document.addEventListener('images-sorted', () => {
-        console.log("Images sorted, saving tab data...");
-        saveCurrentTabData();
-    });
-
+    
+    document.addEventListener('images-sorted', () => saveCurrentTabData());
     initGlobalListeners();
 
-    const lastView = state.currentView || 'comenzi';
-    
-    if (lastView === 'financiar') {
+    // Restaurare View
+    if (state.currentView === 'financiar') {
         await renderView('financiar');
         if (state.currentCommandId) {
-             const select = document.getElementById('financiar-command-select');
-             if (select) {
-                 select.value = state.currentCommandId;
-                 select.dispatchEvent(new Event('change', { bubbles: true }));
-             }
+            const s = document.getElementById('financiar-command-select');
+            if(s) { s.value = state.currentCommandId; s.dispatchEvent(new Event('change')); }
         }
     } else {
-        renderView(lastView);
+        renderView(state.currentView || 'comenzi');
     }
 });
