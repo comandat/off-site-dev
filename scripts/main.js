@@ -13,17 +13,21 @@ import {
 import { AppState, fetchDataAndSyncState, fetchProductDetailsInBulk } from './data.js';
 import { templates } from './templates.js';
 import { GET_PALLETS_WEBHOOK_URL } from './constants.js'; 
-import { 
-    loadTabData, 
-    handleProductSave, 
-    handleTitleRefresh, 
-    handleTranslationInit, 
-    handleImageActions, 
+import {
+    loadTabData,
+    handleProductSave,
+    handleTitleRefresh,
+    handleTranslationInit,
+    handleImageActions,
     handleDescriptionToggle,
     saveCurrentTabData,
     saveProductCoreData,
     handleImageTranslation,
-    handleDescriptionRefresh
+    handleDescriptionRefresh,
+    handleCategoryChange,
+    handleAiFillAttributes,
+    handleAllCategoriesToggle,
+    handleCategorySearch
 } from './product-details.js';
 
 // --- FUNCȚIE HELPER PENTRU PALEȚI ---
@@ -415,6 +419,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             }
             if (action === 'refresh-ro-title') await handleTitleRefresh(actionButton);
             if (action === 'refresh-ro-description') await handleDescriptionRefresh(actionButton);
+            if (action === 'ai-fill-attributes') await handleAiFillAttributes(actionButton);
             if (action === 'save-product') {
                 const success = await handleProductSave(actionButton);
                 if (success) {
@@ -449,6 +454,9 @@ document.addEventListener('DOMContentLoaded', async () => {
             const filter = event.target.value.toLowerCase();
             document.querySelectorAll('#language-list .language-option').forEach(l => l.style.display = l.textContent.toLowerCase().includes(filter) ? '' : 'none');
         }
+        else if (event.target.id?.startsWith('cat-search-')) {
+            handleCategorySearch(event.target);
+        }
         else if (event.target.id === 'product-search-input') {
             state.currentSearchQuery = event.target.value;
             clearTimeout(state.searchTimeout);
@@ -467,6 +475,15 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // Listener Change (Dropdown Financiar)
     mainContent.addEventListener('change', async (event) => {
+        if (event.target.id?.startsWith('category-selector-')) {
+            const platform = event.target.id.replace('category-selector-', '');
+            await handleCategoryChange(platform, event.target.value);
+            return;
+        }
+        if (event.target.id?.startsWith('show-all-')) {
+            handleAllCategoriesToggle(event.target);
+            return;
+        }
         if (event.target.id === 'financiar-command-select') {
             const cmdId = event.target.value;
             state.currentCommandId = cmdId;

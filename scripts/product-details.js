@@ -5,7 +5,12 @@ import {
     TITLE_GENERATION_WEBHOOK_URL,
     TRANSLATION_WEBHOOK_URL,
     IMAGE_TRANSLATION_WEBHOOK_URL,
-    DESCRIPTION_GENERATION_WEBHOOK_URL
+    DESCRIPTION_GENERATION_WEBHOOK_URL,
+    CATEGORY_ATTRIBUTES_WEBHOOK_URL,
+    AI_FILL_ATTRIBUTES_WEBHOOK_URL,
+    SAVE_PRODUCT_ATTRIBUTES_URL,
+    GET_PRODUCT_ATTRIBUTES_URL,
+    ALL_CATEGORIES_URL
 } from './constants.js';
 import { renderImageGallery, initializeSortable, templates } from './templates.js';
 import { saveProductDetails } from './data.js';
@@ -159,6 +164,7 @@ export async function fetchAndRenderCompetition(asin) {
         const data = rawData?.get_competition_v2 || rawData || {};
         state.competitionDataCache = data;
         container.innerHTML = templates.competition(data);
+        populateCategorySelector();
     } catch (error) {
         console.error('Eroare competiție:', error);
         container.innerHTML = `<div class="p-8 text-center text-red-500">Nu s-au putut încărca produsele concurente.</div>`;
@@ -197,6 +203,7 @@ export async function saveProductCoreData() {
 
         if (success) {
             state.editedProductData = localCopy;
+            await saveAttributesToDB(asin);
             return true;
         }
         return false;
@@ -521,4 +528,405 @@ export function handleDescriptionToggle(descModeButton) {
     });
     descModeButton.classList.add('bg-blue-600', 'text-white');
     descModeButton.classList.remove('hover:bg-gray-100');
+}
+
+// --- CATEGORII & CARACTERISTICI + DRAG-CONNECT ---
+
+const mappingState = {
+    connections: [],
+    dragging: null,
+    categories: { emag: null, trendyol: null, temu: null },
+    savedValues: { emag: {}, trendyol: {}, temu: {} },
+    savedMappings: [],
+    searchTimers: {}
+};
+
+export function populateCategorySelector() {
+    const categories = [...(state.competitionDataCache?.suggested_categories || [])];
+    categories.sort((a, b) => (b.count || 0) - (a.count || 0));
+    const selector = document.getElementById('category-selector-emag');
+    if (!selector) return;
+    if (categories.length === 0) {
+        selector.innerHTML = '<option value="">Nu există categorii disponibile</option>';
+        return;
+    }
+    selector.innerHTML = categories.map((cat, i) =>
+        `<option value="${cat.id}"${i === 0 ? ' selected' : ''}>${cat.name} (${cat.count || 0})</option>`
+    ).join('');
+    // Triggerează încărcarea atributelor pentru prima categorie din eMAG
+    // dar numai dacă nu există deja date din DB (loadProductAttributesFromDB face asta)
+    if (!mappingState.categories.emag) {
+        handleCategoryChange('emag', String(categories[0].id));
+    }
+}
+
+export async function handleCategoryChange(platform, categoryId) {
+    if (!categoryId) return;
+    // Salvează valorile curente în memorie înainte de switch
+    if (mappingState.categories[platform]) {
+        mappingState.savedValues[platform] = collectAttributeValuesForPlatform(platform);
+    }
+    mappingState.categories[platform] = categoryId;
+    clearAllConnections();
+    const el = document.getElementById(`${platform}-attributes`);
+    if (el) el.innerHTML = '<p class="text-xs text-gray-400 italic">Se încarcă...</p>';
+    await fetchAndRenderAttributes(platform, categoryId);
+    restoreAttributeValues(platform, mappingState.savedValues[platform] || {});
+    restoreConnections();
+    initDragConnect();
+}
+
+async function fetchAndRenderAttributes(platform, categoryId) {
+    const container = document.getElementById(`${platform}-attributes`);
+    if (!container) return;
+    try {
+        const response = await fetch(CATEGORY_ATTRIBUTES_WEBHOOK_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ platform, categoryId })
+        });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const data = await response.json();
+        const attrs = Array.isArray(data.attributes) ? data.attributes : [];
+        container.innerHTML = attrs.length
+            ? attrs.map(attr => renderAttributeRow(attr, platform)).join('')
+            : '<p class="text-xs text-gray-400 italic">Nu există caracteristici pentru această categorie</p>';
+    } catch {
+        container.innerHTML = '<p class="text-xs text-red-400 italic">Caracteristicile vor fi disponibile după configurarea webhook-ului</p>';
+    }
+}
+
+function renderAttributeRow(attr, platform) {
+    const attrId = String(attr.id ?? attr.name ?? '').replace(/[^a-zA-Z0-9_-]/g, '_');
+    return `<div class="attr-row flex items-center gap-1" data-attr-id="${attrId}" data-platform="${platform}">
+        <div class="connector-dot bg-gray-300" data-side="left" data-platform="${platform}" data-attr-id="${attrId}"></div>
+        <div class="flex-1 flex items-center gap-1.5 bg-gray-50 rounded px-2 py-1 min-w-0">
+            <span class="text-xs text-gray-600 font-medium flex-shrink-0 truncate" style="width:45%" title="${attr.name}">${attr.name}</span>
+            <input type="text" class="attr-value-input flex-1 text-xs bg-transparent border-0 border-b border-gray-300 focus:border-blue-400 focus:outline-none px-0 min-w-0"
+                   data-attr-id="${attrId}" data-platform="${platform}" placeholder="Valoare..." value="${attr.value || ''}">
+        </div>
+        <div class="connector-dot bg-gray-300" data-side="right" data-platform="${platform}" data-attr-id="${attrId}"></div>
+    </div>`;
+}
+
+function getDotPos(dot) {
+    const area = document.getElementById('attributes-mapping-area');
+    const areaRect = area.getBoundingClientRect();
+    const dotRect = dot.getBoundingClientRect();
+    return {
+        x: dotRect.left + dotRect.width / 2 - areaRect.left,
+        y: dotRect.top + dotRect.height / 2 - areaRect.top
+    };
+}
+
+function bezierPath(x1, y1, x2, y2) {
+    const cx = (x1 + x2) / 2;
+    return `M${x1},${y1} C${cx},${y1} ${cx},${y2} ${x2},${y2}`;
+}
+
+function makeSvgPath(d, stroke, dashed) {
+    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    path.setAttribute('d', d);
+    path.setAttribute('stroke', stroke);
+    path.setAttribute('stroke-width', '2');
+    path.setAttribute('fill', 'none');
+    path.setAttribute('opacity', '0.8');
+    if (dashed) path.setAttribute('stroke-dasharray', '6,3');
+    return path;
+}
+
+function initDragConnect() {
+    const area = document.getElementById('attributes-mapping-area');
+    if (!area) return;
+    if (area._dragHandler) area.removeEventListener('mousedown', area._dragHandler);
+
+    const handler = e => {
+        const dot = e.target.closest('.connector-dot');
+        if (!dot) return;
+        e.preventDefault();
+
+        const pos = getDotPos(dot);
+        const svg = document.getElementById('connections-svg');
+        const tempPath = makeSvgPath(bezierPath(pos.x, pos.y, pos.x, pos.y), '#3b82f6', true);
+        svg.appendChild(tempPath);
+        dot.style.backgroundColor = '#3b82f6';
+
+        const onMove = ev => {
+            const areaRect = document.getElementById('attributes-mapping-area').getBoundingClientRect();
+            const ex = ev.clientX - areaRect.left;
+            const ey = ev.clientY - areaRect.top;
+            tempPath.setAttribute('d', bezierPath(pos.x, pos.y, ex, ey));
+        };
+
+        const onUp = ev => {
+            document.removeEventListener('mousemove', onMove);
+            document.removeEventListener('mouseup', onUp);
+            dot.style.backgroundColor = '';
+
+            const targetDot = ev.target.closest('.connector-dot');
+            if (targetDot && targetDot !== dot && targetDot.dataset.platform !== dot.dataset.platform) {
+                const endPos = getDotPos(targetDot);
+                tempPath.setAttribute('d', bezierPath(pos.x, pos.y, endPos.x, endPos.y));
+                tempPath.setAttribute('stroke', '#16a34a');
+                tempPath.removeAttribute('stroke-dasharray');
+                tempPath.setAttribute('pointer-events', 'visibleStroke');
+                tempPath.setAttribute('class', 'connection-line');
+                tempPath.style.cursor = 'pointer';
+
+                const conn = {
+                    fromPlatform: dot.dataset.platform,
+                    fromAttrId: dot.dataset.attrId,
+                    fromSide: dot.dataset.side,
+                    toPlatform: targetDot.dataset.platform,
+                    toAttrId: targetDot.dataset.attrId,
+                    toSide: targetDot.dataset.side,
+                    path: tempPath
+                };
+                mappingState.connections.push(conn);
+                dot.style.backgroundColor = '#16a34a';
+                targetDot.style.backgroundColor = '#16a34a';
+                tempPath.addEventListener('click', () => removeConnection(conn));
+                saveConnections();
+            } else {
+                tempPath.remove();
+            }
+        };
+
+        document.addEventListener('mousemove', onMove);
+        document.addEventListener('mouseup', onUp);
+    };
+
+    area.addEventListener('mousedown', handler);
+    area._dragHandler = handler;
+}
+
+function removeConnection(conn) {
+    conn.path.remove();
+    const fromDot = document.querySelector(`.connector-dot[data-platform="${conn.fromPlatform}"][data-attr-id="${conn.fromAttrId}"][data-side="${conn.fromSide}"]`);
+    const toDot = document.querySelector(`.connector-dot[data-platform="${conn.toPlatform}"][data-attr-id="${conn.toAttrId}"][data-side="${conn.toSide}"]`);
+    if (fromDot) fromDot.style.backgroundColor = '';
+    if (toDot) toDot.style.backgroundColor = '';
+    mappingState.connections = mappingState.connections.filter(c => c !== conn);
+    saveConnections();
+}
+
+function clearAllConnections() {
+    const svg = document.getElementById('connections-svg');
+    if (svg) svg.innerHTML = '';
+    const area = document.getElementById('attributes-mapping-area');
+    if (area && area._dragHandler) {
+        area.removeEventListener('mousedown', area._dragHandler);
+        area._dragHandler = null;
+    }
+    mappingState.connections = [];
+}
+
+function restoreConnections() {
+    const toRestore = mappingState.savedMappings.length
+        ? mappingState.savedMappings
+        : [];
+    const svg = document.getElementById('connections-svg');
+    if (!svg || !toRestore.length) return;
+    toRestore.forEach(c => {
+        const fromDot = document.querySelector(`.connector-dot[data-platform="${c.fromPlatform}"][data-attr-id="${c.fromAttrId}"][data-side="${c.fromSide}"]`);
+        const toDot = document.querySelector(`.connector-dot[data-platform="${c.toPlatform}"][data-attr-id="${c.toAttrId}"][data-side="${c.toSide}"]`);
+        if (!fromDot || !toDot) return;
+        const p1 = getDotPos(fromDot);
+        const p2 = getDotPos(toDot);
+        const path = makeSvgPath(bezierPath(p1.x, p1.y, p2.x, p2.y), '#16a34a', false);
+        path.setAttribute('pointer-events', 'visibleStroke');
+        path.setAttribute('class', 'connection-line');
+        path.style.cursor = 'pointer';
+        svg.appendChild(path);
+        fromDot.style.backgroundColor = '#16a34a';
+        toDot.style.backgroundColor = '#16a34a';
+        const conn = { ...c, path };
+        mappingState.connections.push(conn);
+        path.addEventListener('click', () => removeConnection(conn));
+    });
+}
+
+function collectAttributeValuesForPlatform(platform) {
+    const result = {};
+    document.querySelectorAll(`.attr-value-input[data-platform="${platform}"]`).forEach(input => {
+        if (input.value) result[input.dataset.attrId] = input.value;
+    });
+    const selector = document.getElementById(`category-selector-${platform}`);
+    if (selector?.value) result.__categoryId = selector.value;
+    return result;
+}
+
+function collectAllAttributeValues() {
+    const result = {};
+    ['emag', 'trendyol', 'temu'].forEach(platform => {
+        const values = collectAttributeValuesForPlatform(platform);
+        const categoryId = mappingState.categories[platform];
+        result[platform] = { categoryId: categoryId || null, attributes: values };
+    });
+    return result;
+}
+
+function restoreAttributeValues(platform, values) {
+    Object.entries(values).forEach(([attrId, value]) => {
+        if (attrId === '__categoryId') return;
+        const input = document.querySelector(`.attr-value-input[data-platform="${platform}"][data-attr-id="${attrId}"]`);
+        if (input) input.value = value;
+    });
+}
+
+async function saveAttributesToDB(asin) {
+    try {
+        const listingData = collectAllAttributeValues();
+        const mappings = mappingState.connections.map(({ path: _, ...c }) => c);
+        await fetch(SAVE_PRODUCT_ATTRIBUTES_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ asin, listingData, mappings })
+        });
+    } catch (err) {
+        console.error('Eroare la salvarea atributelor:', err);
+    }
+}
+
+export async function loadProductAttributesFromDB(asin) {
+    try {
+        const res = await fetch(GET_PRODUCT_ATTRIBUTES_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ asin })
+        });
+        if (!res.ok) return;
+        const raw = await res.json();
+        const data = raw?.get_product_attributes_v2 || raw;
+        const listingData = data?.listing_data || {};
+        const mappings = data?.mappings || [];
+        if (!Object.keys(listingData).length && !mappings.length) return;
+        mappingState.savedMappings = mappings;
+        // Restaurare categorii și valori per platformă
+        const platforms = ['emag', 'trendyol', 'temu'];
+        for (const platform of platforms) {
+            const platformData = listingData[platform];
+            if (!platformData?.categoryId) continue;
+            mappingState.savedValues[platform] = platformData.attributes || {};
+            mappingState.categories[platform] = platformData.categoryId;
+            const selector = document.getElementById(`category-selector-${platform}`);
+            if (selector) {
+                // Adaugă opțiunea dacă nu există deja
+                if (!selector.querySelector(`option[value="${platformData.categoryId}"]`)) {
+                    const opt = document.createElement('option');
+                    opt.value = platformData.categoryId;
+                    opt.textContent = `Categorie ${platformData.categoryId}`;
+                    selector.appendChild(opt);
+                }
+                selector.value = platformData.categoryId;
+            }
+            await fetchAndRenderAttributes(platform, platformData.categoryId);
+            restoreAttributeValues(platform, platformData.attributes || {});
+        }
+        restoreConnections();
+        initDragConnect();
+    } catch (err) {
+        console.error('Eroare la încărcarea atributelor:', err);
+    }
+}
+
+export function handleAllCategoriesToggle(checkbox) {
+    const platform = checkbox.dataset.platform;
+    const searchBox = document.getElementById(`all-categories-${platform}`);
+    if (!searchBox) return;
+    searchBox.classList.toggle('hidden', !checkbox.checked);
+    if (checkbox.checked) {
+        const input = document.getElementById(`cat-search-${platform}`);
+        if (input) { input.value = ''; input.focus(); }
+        renderCategoryResults(platform, []);
+    }
+}
+
+export function handleCategorySearch(input) {
+    const platform = input.dataset.platform;
+    clearTimeout(mappingState.searchTimers[platform]);
+    mappingState.searchTimers[platform] = setTimeout(async () => {
+        const search = input.value.trim();
+        try {
+            const res = await fetch(ALL_CATEGORIES_URL, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ platform, search })
+            });
+            if (!res.ok) return;
+            const data = await res.json();
+            renderCategoryResults(platform, data.categories || []);
+        } catch {
+            renderCategoryResults(platform, []);
+        }
+    }, 300);
+}
+
+function renderCategoryResults(platform, categories) {
+    const container = document.getElementById(`cat-results-${platform}`);
+    if (!container) return;
+    if (!categories.length) {
+        container.innerHTML = '<p class="px-2 py-1 text-gray-400 italic">Niciun rezultat</p>';
+        return;
+    }
+    container.innerHTML = categories.map(cat =>
+        `<div class="px-2 py-1.5 hover:bg-blue-50 cursor-pointer border-b border-gray-100 last:border-0 cat-result-item"
+              data-platform="${platform}" data-id="${cat.id}" data-name="${cat.name}">
+            ${cat.name}
+         </div>`
+    ).join('');
+    container.querySelectorAll('.cat-result-item').forEach(item => {
+        item.addEventListener('click', () => {
+            const catPlatform = item.dataset.platform;
+            const catId = item.dataset.id;
+            const catName = item.dataset.name;
+            const selector = document.getElementById(`category-selector-${catPlatform}`);
+            if (selector) {
+                if (!selector.querySelector(`option[value="${catId}"]`)) {
+                    const opt = document.createElement('option');
+                    opt.value = catId;
+                    opt.textContent = catName;
+                    selector.appendChild(opt);
+                }
+                selector.value = catId;
+            }
+            // Ascunde search box + debifează checkbox
+            const checkbox = document.getElementById(`show-all-${catPlatform}`);
+            if (checkbox) checkbox.checked = false;
+            document.getElementById(`all-categories-${catPlatform}`)?.classList.add('hidden');
+            handleCategoryChange(catPlatform, catId);
+        });
+    });
+}
+
+export async function handleAiFillAttributes(button) {
+    const orig = button.innerHTML;
+    button.disabled = true;
+    button.innerHTML = `<div class="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>`;
+    const asin = document.getElementById('product-asin')?.value;
+    const categoryId = mappingState.currentCategoryId;
+    const title = state.editedProductData?.title || '';
+    const description = state.editedProductData?.description || '';
+    const images = state.editedProductData?.images || [];
+    try {
+        const response = await fetch(AI_FILL_ATTRIBUTES_WEBHOOK_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ asin, categoryId, title, description, images })
+        });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const data = await response.json();
+        const filled = data.attributes || {};
+        Object.entries(filled).forEach(([platform, attrs]) => {
+            Object.entries(attrs).forEach(([attrId, value]) => {
+                const input = document.querySelector(`.attr-value-input[data-platform="${platform}"][data-attr-id="${attrId}"]`);
+                if (input) input.value = value;
+            });
+        });
+    } catch {
+        alert('Funcția de completare AI va fi disponibilă după configurarea webhook-ului n8n.');
+    } finally {
+        button.disabled = false;
+        button.innerHTML = orig;
+    }
 }
