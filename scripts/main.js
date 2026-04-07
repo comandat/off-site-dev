@@ -13,17 +13,19 @@ import {
 import { AppState, fetchDataAndSyncState, fetchProductDetailsInBulk } from './data.js';
 import { templates } from './templates.js';
 import { GET_PALLETS_WEBHOOK_URL } from './constants.js'; 
-import { 
-    loadTabData, 
-    handleProductSave, 
-    handleTitleRefresh, 
-    handleTranslationInit, 
-    handleImageActions, 
+import {
+    loadTabData,
+    handleProductSave,
+    handleTitleRefresh,
+    handleTranslationInit,
+    handleImageActions,
     handleDescriptionToggle,
     saveCurrentTabData,
     saveProductCoreData,
     handleImageTranslation,
-    handleDescriptionRefresh
+    handleDescriptionRefresh,
+    handleCategoryChange,
+    handleAiFillAttributes
 } from './product-details.js';
 
 // --- FUNCȚIE HELPER PENTRU PALEȚI ---
@@ -415,6 +417,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             }
             if (action === 'refresh-ro-title') await handleTitleRefresh(actionButton);
             if (action === 'refresh-ro-description') await handleDescriptionRefresh(actionButton);
+            if (action === 'ai-fill-attributes') await handleAiFillAttributes(actionButton);
             if (action === 'save-product') {
                 const success = await handleProductSave(actionButton);
                 if (success) {
@@ -467,6 +470,10 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // Listener Change (Dropdown Financiar)
     mainContent.addEventListener('change', async (event) => {
+        if (event.target.id === 'category-selector') {
+            await handleCategoryChange(event.target.value);
+            return;
+        }
         if (event.target.id === 'financiar-command-select') {
             const cmdId = event.target.value;
             state.currentCommandId = cmdId;

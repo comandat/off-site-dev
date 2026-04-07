@@ -590,13 +590,13 @@ financiarProductTable: (products, detailsMap, commandId, calculatedData = null) 
         }
 
         const cardsHTML = competitors.map(comp => {
-            const labelText = comp.promotion_label || comp.deal_type;
+            const labelText = comp.promoLabel || comp.dealType;
             const labelHTML = labelText
                 ? `<span class="absolute top-2 left-2 bg-blue-500 text-white text-xs font-bold px-2 py-1 rounded">${labelText}</span>`
                 : '';
 
-            const oldPriceHTML = comp.price_old
-                ? `<p class="text-sm text-gray-500 line-through">${comp.price_old}</p>`
+            const oldPriceHTML = comp.oldPrice && comp.oldPrice !== comp.currentPrice
+                ? `<p class="text-sm text-gray-500 line-through">${comp.oldPrice} RON</p>`
                 : '';
 
             return `
@@ -609,14 +609,14 @@ financiarProductTable: (products, detailsMap, commandId, calculatedData = null) 
                         <div>
                             <div class="flex items-center space-x-1 mb-1">
                                 ${renderCompetitionStars(comp.rating)}
-                                <span class="text-sm text-gray-500">${comp.reviews_count || ''}</span>
+                                <span class="text-sm text-gray-500">${comp.reviews ? `(${comp.reviews})` : ''}</span>
                             </div>
                             <h3 class="font-semibold text-gray-800 text-sm h-20 overflow-hidden line-clamp-3">${comp.name}</h3>
                         </div>
                         <div>
                             <div class="mt-2 mb-3">
                                 ${oldPriceHTML}
-                                <p class="text-xl font-bold text-red-600">${comp.price_current || ''}</p>
+                                <p class="text-xl font-bold text-red-600">${comp.currentPrice ? comp.currentPrice + ' RON' : ''}</p>
                             </div>
                             <a href="${comp.url || '#'}" target="_blank" rel="noopener noreferrer"
                                class="block w-full text-center px-4 py-2 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-700 transition-colors">
@@ -691,9 +691,6 @@ financiarProductTable: (products, detailsMap, commandId, calculatedData = null) 
                 <div class="lg:col-span-1 space-y-6">
                     <div id="image-gallery-container" class="bg-white p-4 rounded-xl shadow-sm"></div>
                     <div class="bg-white p-4 rounded-xl shadow-sm space-y-4">
-                        <div><label class="text-sm font-medium text-gray-500">Brand</label><input id="product-brand" class="mt-1 block w-full bg-transparent p-0 border-0 border-b-2" type="text" value="${details.brand || ''}"></div>
-                        <div><label class="text-sm font-medium text-gray-500">Preț estimat</label><input id="product-price" class="mt-1 block w-full bg-transparent p-0 border-0 border-b-2" type="text" value="${details.price || ''}"></div>
-
                         <div>
                             <label for="product-asin" class="text-sm font-medium text-gray-500">ASIN</label>
                             <div class="flex items-center space-x-2">
@@ -754,6 +751,69 @@ financiarProductTable: (products, detailsMap, commandId, calculatedData = null) 
                     <h2 class="text-2xl font-bold text-gray-800 mb-4">Competiție</h2>
                     <div id="competition-container">
                         <div class="p-8 text-center text-gray-500">Se încarcă...</div>
+                    </div>
+                </div>
+
+                <div class="lg:col-span-3 mt-6">
+                    <div class="bg-white rounded-xl shadow-sm p-6">
+                        <div class="flex items-center justify-between mb-5">
+                            <h2 class="text-2xl font-bold text-gray-800">Categorii & Caracteristici</h2>
+                            <button data-action="ai-fill-attributes" class="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg font-semibold hover:bg-purple-700 transition-colors text-sm">
+                                <span class="material-icons text-base">auto_fix_high</span>
+                                Completare AI
+                            </button>
+                        </div>
+
+                        <div class="grid grid-cols-2 gap-6 mb-5 pb-5 border-b border-gray-200">
+                            <div>
+                                <label class="text-sm font-medium text-gray-500">Brand</label>
+                                <input id="product-brand" class="mt-1 block w-full bg-transparent p-0 border-0 border-b-2" type="text" value="${details.brand || ''}">
+                            </div>
+                            <div>
+                                <label class="text-sm font-medium text-gray-500">Preț estimat</label>
+                                <input id="product-price" class="mt-1 block w-full bg-transparent p-0 border-0 border-b-2" type="text" value="${details.price || ''}">
+                            </div>
+                        </div>
+
+                        <div class="mb-5">
+                            <label for="category-selector" class="block text-sm font-medium text-gray-500 mb-1">Categorie eMAG</label>
+                            <select id="category-selector" class="block w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white">
+                                <option value="">Se încarcă datele de competiție...</option>
+                            </select>
+                        </div>
+
+                        <div class="relative" id="attributes-mapping-area" style="min-height:160px;">
+                            <svg id="connections-svg" style="position:absolute;top:0;left:0;width:100%;height:100%;overflow:visible;pointer-events:none;z-index:1;"></svg>
+                            <div class="grid grid-cols-3" style="position:relative;z-index:0;">
+                                <div class="pr-6 border-r border-gray-200" data-platform="emag">
+                                    <div class="flex items-center gap-2 mb-3 pb-2 border-b border-gray-100">
+                                        <div class="w-2.5 h-2.5 rounded-full bg-blue-500"></div>
+                                        <span class="font-semibold text-sm text-blue-600">eMAG</span>
+                                    </div>
+                                    <div id="emag-attributes" class="space-y-1.5">
+                                        <p class="text-xs text-gray-400 italic">Selectați o categorie</p>
+                                    </div>
+                                </div>
+                                <div class="px-6 border-r border-gray-200" data-platform="trendyol">
+                                    <div class="flex items-center gap-2 mb-3 pb-2 border-b border-gray-100">
+                                        <div class="w-2.5 h-2.5 rounded-full bg-orange-500"></div>
+                                        <span class="font-semibold text-sm text-orange-500">Trendyol</span>
+                                    </div>
+                                    <div id="trendyol-attributes" class="space-y-1.5">
+                                        <p class="text-xs text-gray-400 italic">Selectați o categorie</p>
+                                    </div>
+                                </div>
+                                <div class="pl-6" data-platform="temu">
+                                    <div class="flex items-center gap-2 mb-3 pb-2 border-b border-gray-100">
+                                        <div class="w-2.5 h-2.5 rounded-full bg-red-500"></div>
+                                        <span class="font-semibold text-sm text-red-500">Temu</span>
+                                    </div>
+                                    <div id="temu-attributes" class="space-y-1.5">
+                                        <p class="text-xs text-gray-400 italic">Selectați o categorie</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>

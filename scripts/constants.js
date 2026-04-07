@@ -9,6 +9,9 @@ export const TRANSLATION_WEBHOOK_URL = `${BASE}/v2-multilang-generate`;
 export const DESCRIPTION_GENERATION_WEBHOOK_URL = `${BASE}/v2-remake-description`;
 export const IMAGE_TRANSLATION_WEBHOOK_URL = `${BASE}/v2-image-translation`;
 
+export const CATEGORY_ATTRIBUTES_WEBHOOK_URL = `${BASE}/v2-category-attributes`;
+export const AI_FILL_ATTRIBUTES_WEBHOOK_URL = `${BASE}/v2-ai-fill-attributes`;
+
 export const GET_FINANCIAL_WEBHOOK_URL = `${BASE}/get-financial`;
 export const SAVE_FINANCIAL_WEBHOOK_URL = `${BASE}/save-financial`;
 export const GENERATE_NIR_WEBHOOK_URL = `${BASE}/generate-nir`;
