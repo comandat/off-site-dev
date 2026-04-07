@@ -775,38 +775,91 @@ financiarProductTable: (products, detailsMap, commandId, calculatedData = null) 
                             </div>
                         </div>
 
-                        <div class="mb-5">
-                            <label for="category-selector" class="block text-sm font-medium text-gray-500 mb-1">Categorie eMAG</label>
-                            <select id="category-selector" class="block w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white">
-                                <option value="">Se încarcă datele de competiție...</option>
-                            </select>
-                        </div>
-
                         <div class="relative" id="attributes-mapping-area" style="min-height:160px;">
                             <svg id="connections-svg" style="position:absolute;top:0;left:0;width:100%;height:100%;overflow:visible;pointer-events:none;z-index:1;"></svg>
                             <div class="grid grid-cols-3" style="position:relative;z-index:0;">
                                 <div class="pr-6 border-r border-gray-200" data-platform="emag">
-                                    <div class="flex items-center gap-2 mb-3 pb-2 border-b border-gray-100">
-                                        <div class="w-2.5 h-2.5 rounded-full bg-blue-500"></div>
+                                    <div class="flex items-center gap-2 mb-2 pb-2 border-b border-gray-100">
+                                        <div class="w-2.5 h-2.5 rounded-full bg-blue-500 flex-shrink-0"></div>
                                         <span class="font-semibold text-sm text-blue-600">eMAG</span>
+                                    </div>
+                                    <div class="mb-2">
+                                        <div class="flex items-center gap-1.5">
+                                            <select id="category-selector-emag" data-platform="emag"
+                                                    class="flex-1 border border-gray-200 rounded px-2 py-1 text-xs bg-white focus:ring-1 focus:ring-blue-400 focus:outline-none min-w-0">
+                                                <option value="">Se încarcă...</option>
+                                            </select>
+                                            <label class="flex items-center gap-1 cursor-pointer flex-shrink-0">
+                                                <input type="checkbox" id="show-all-emag" data-platform="emag"
+                                                       class="w-3 h-3 text-blue-600 rounded cursor-pointer">
+                                                <span class="text-xs text-gray-500 whitespace-nowrap">Toate</span>
+                                            </label>
+                                        </div>
+                                        <div id="all-categories-emag" class="hidden mt-1">
+                                            <input type="text" id="cat-search-emag" data-platform="emag"
+                                                   placeholder="Caută categorie eMAG..."
+                                                   class="w-full border border-gray-200 rounded px-2 py-1 text-xs focus:ring-1 focus:ring-blue-400 focus:outline-none">
+                                            <div id="cat-results-emag"
+                                                 class="mt-1 border border-gray-200 rounded max-h-40 overflow-y-auto bg-white shadow-sm text-xs"></div>
+                                        </div>
                                     </div>
                                     <div id="emag-attributes" class="space-y-1.5">
                                         <p class="text-xs text-gray-400 italic">Selectați o categorie</p>
                                     </div>
                                 </div>
                                 <div class="px-6 border-r border-gray-200" data-platform="trendyol">
-                                    <div class="flex items-center gap-2 mb-3 pb-2 border-b border-gray-100">
-                                        <div class="w-2.5 h-2.5 rounded-full bg-orange-500"></div>
+                                    <div class="flex items-center gap-2 mb-2 pb-2 border-b border-gray-100">
+                                        <div class="w-2.5 h-2.5 rounded-full bg-orange-500 flex-shrink-0"></div>
                                         <span class="font-semibold text-sm text-orange-500">Trendyol</span>
+                                    </div>
+                                    <div class="mb-2">
+                                        <div class="flex items-center gap-1.5">
+                                            <select id="category-selector-trendyol" data-platform="trendyol"
+                                                    class="flex-1 border border-gray-200 rounded px-2 py-1 text-xs bg-white focus:ring-1 focus:ring-orange-400 focus:outline-none min-w-0">
+                                                <option value="">Selectați o categorie...</option>
+                                            </select>
+                                            <label class="flex items-center gap-1 cursor-pointer flex-shrink-0">
+                                                <input type="checkbox" id="show-all-trendyol" data-platform="trendyol"
+                                                       class="w-3 h-3 text-orange-500 rounded cursor-pointer">
+                                                <span class="text-xs text-gray-500 whitespace-nowrap">Toate</span>
+                                            </label>
+                                        </div>
+                                        <div id="all-categories-trendyol" class="hidden mt-1">
+                                            <input type="text" id="cat-search-trendyol" data-platform="trendyol"
+                                                   placeholder="Caută categorie Trendyol..."
+                                                   class="w-full border border-gray-200 rounded px-2 py-1 text-xs focus:ring-1 focus:ring-orange-400 focus:outline-none">
+                                            <div id="cat-results-trendyol"
+                                                 class="mt-1 border border-gray-200 rounded max-h-40 overflow-y-auto bg-white shadow-sm text-xs"></div>
+                                        </div>
                                     </div>
                                     <div id="trendyol-attributes" class="space-y-1.5">
                                         <p class="text-xs text-gray-400 italic">Selectați o categorie</p>
                                     </div>
                                 </div>
                                 <div class="pl-6" data-platform="temu">
-                                    <div class="flex items-center gap-2 mb-3 pb-2 border-b border-gray-100">
-                                        <div class="w-2.5 h-2.5 rounded-full bg-red-500"></div>
+                                    <div class="flex items-center gap-2 mb-2 pb-2 border-b border-gray-100">
+                                        <div class="w-2.5 h-2.5 rounded-full bg-red-500 flex-shrink-0"></div>
                                         <span class="font-semibold text-sm text-red-500">Temu</span>
+                                    </div>
+                                    <div class="mb-2">
+                                        <div class="flex items-center gap-1.5">
+                                            <select id="category-selector-temu" data-platform="temu"
+                                                    class="flex-1 border border-gray-200 rounded px-2 py-1 text-xs bg-white focus:ring-1 focus:ring-red-400 focus:outline-none min-w-0">
+                                                <option value="">Selectați o categorie...</option>
+                                            </select>
+                                            <label class="flex items-center gap-1 cursor-pointer flex-shrink-0">
+                                                <input type="checkbox" id="show-all-temu" data-platform="temu"
+                                                       class="w-3 h-3 text-red-500 rounded cursor-pointer">
+                                                <span class="text-xs text-gray-500 whitespace-nowrap">Toate</span>
+                                            </label>
+                                        </div>
+                                        <div id="all-categories-temu" class="hidden mt-1">
+                                            <input type="text" id="cat-search-temu" data-platform="temu"
+                                                   placeholder="Caută categorie Temu..."
+                                                   class="w-full border border-gray-200 rounded px-2 py-1 text-xs focus:ring-1 focus:ring-red-400 focus:outline-none">
+                                            <div id="cat-results-temu"
+                                                 class="mt-1 border border-gray-200 rounded max-h-40 overflow-y-auto bg-white shadow-sm text-xs"></div>
+                                        </div>
                                     </div>
                                     <div id="temu-attributes" class="space-y-1.5">
                                         <p class="text-xs text-gray-400 italic">Selectați o categorie</p>

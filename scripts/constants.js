@@ -11,6 +11,9 @@ export const IMAGE_TRANSLATION_WEBHOOK_URL = `${BASE}/v2-image-translation`;
 
 export const CATEGORY_ATTRIBUTES_WEBHOOK_URL = `${BASE}/v2-category-attributes`;
 export const AI_FILL_ATTRIBUTES_WEBHOOK_URL = `${BASE}/v2-ai-fill-attributes`;
+export const SAVE_PRODUCT_ATTRIBUTES_URL = `${BASE}/v2-save-product-attributes`;
+export const GET_PRODUCT_ATTRIBUTES_URL = `${BASE}/v2-get-product-attributes`;
+export const ALL_CATEGORIES_URL = `${BASE}/v2-all-categories`;
 
 export const GET_FINANCIAL_WEBHOOK_URL = `${BASE}/get-financial`;
 export const SAVE_FINANCIAL_WEBHOOK_URL = `${BASE}/save-financial`;

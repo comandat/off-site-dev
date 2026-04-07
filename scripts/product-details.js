@@ -7,7 +7,10 @@ import {
     IMAGE_TRANSLATION_WEBHOOK_URL,
     DESCRIPTION_GENERATION_WEBHOOK_URL,
     CATEGORY_ATTRIBUTES_WEBHOOK_URL,
-    AI_FILL_ATTRIBUTES_WEBHOOK_URL
+    AI_FILL_ATTRIBUTES_WEBHOOK_URL,
+    SAVE_PRODUCT_ATTRIBUTES_URL,
+    GET_PRODUCT_ATTRIBUTES_URL,
+    ALL_CATEGORIES_URL
 } from './constants.js';
 import { renderImageGallery, initializeSortable, templates } from './templates.js';
 import { saveProductDetails } from './data.js';
@@ -200,6 +203,7 @@ export async function saveProductCoreData() {
 
         if (success) {
             state.editedProductData = localCopy;
+            await saveAttributesToDB(asin);
             return true;
         }
         return false;
@@ -531,14 +535,17 @@ export function handleDescriptionToggle(descModeButton) {
 const mappingState = {
     connections: [],
     dragging: null,
-    currentCategoryId: null
+    categories: { emag: null, trendyol: null, temu: null },
+    savedValues: { emag: {}, trendyol: {}, temu: {} },
+    savedMappings: [],
+    searchTimers: {}
 };
 
 export function populateCategorySelector() {
-    const selector = document.getElementById('category-selector');
-    if (!selector) return;
     const categories = [...(state.competitionDataCache?.suggested_categories || [])];
     categories.sort((a, b) => (b.count || 0) - (a.count || 0));
+    const selector = document.getElementById('category-selector-emag');
+    if (!selector) return;
     if (categories.length === 0) {
         selector.innerHTML = '<option value="">Nu există categorii disponibile</option>';
         return;
@@ -546,19 +553,25 @@ export function populateCategorySelector() {
     selector.innerHTML = categories.map((cat, i) =>
         `<option value="${cat.id}"${i === 0 ? ' selected' : ''}>${cat.name} (${cat.count || 0})</option>`
     ).join('');
-    handleCategoryChange(String(categories[0].id));
+    // Triggerează încărcarea atributelor pentru prima categorie din eMAG
+    // dar numai dacă nu există deja date din DB (loadProductAttributesFromDB face asta)
+    if (!mappingState.categories.emag) {
+        handleCategoryChange('emag', String(categories[0].id));
+    }
 }
 
-export async function handleCategoryChange(categoryId) {
+export async function handleCategoryChange(platform, categoryId) {
     if (!categoryId) return;
-    mappingState.currentCategoryId = categoryId;
+    // Salvează valorile curente în memorie înainte de switch
+    if (mappingState.categories[platform]) {
+        mappingState.savedValues[platform] = collectAttributeValuesForPlatform(platform);
+    }
+    mappingState.categories[platform] = categoryId;
     clearAllConnections();
-    const platforms = ['emag', 'trendyol', 'temu'];
-    platforms.forEach(p => {
-        const el = document.getElementById(`${p}-attributes`);
-        if (el) el.innerHTML = '<p class="text-xs text-gray-400 italic">Se încarcă...</p>';
-    });
-    await Promise.all(platforms.map(p => fetchAndRenderAttributes(p, categoryId)));
+    const el = document.getElementById(`${platform}-attributes`);
+    if (el) el.innerHTML = '<p class="text-xs text-gray-400 italic">Se încarcă...</p>';
+    await fetchAndRenderAttributes(platform, categoryId);
+    restoreAttributeValues(platform, mappingState.savedValues[platform] || {});
     restoreConnections();
     initDragConnect();
 }
@@ -708,24 +721,13 @@ function clearAllConnections() {
     mappingState.connections = [];
 }
 
-function saveConnections() {
-    const asin = document.getElementById('product-asin')?.value;
-    if (!asin || !mappingState.currentCategoryId) return;
-    const key = `attr_conn_${asin}_${mappingState.currentCategoryId}`;
-    localStorage.setItem(key, JSON.stringify(mappingState.connections.map(c => ({
-        fromPlatform: c.fromPlatform, fromAttrId: c.fromAttrId, fromSide: c.fromSide,
-        toPlatform: c.toPlatform, toAttrId: c.toAttrId, toSide: c.toSide
-    }))));
-}
-
 function restoreConnections() {
-    const asin = document.getElementById('product-asin')?.value;
-    if (!asin || !mappingState.currentCategoryId) return;
-    const key = `attr_conn_${asin}_${mappingState.currentCategoryId}`;
-    const saved = JSON.parse(localStorage.getItem(key) || '[]');
+    const toRestore = mappingState.savedMappings.length
+        ? mappingState.savedMappings
+        : [];
     const svg = document.getElementById('connections-svg');
-    if (!svg) return;
-    saved.forEach(c => {
+    if (!svg || !toRestore.length) return;
+    toRestore.forEach(c => {
         const fromDot = document.querySelector(`.connector-dot[data-platform="${c.fromPlatform}"][data-attr-id="${c.fromAttrId}"][data-side="${c.fromSide}"]`);
         const toDot = document.querySelector(`.connector-dot[data-platform="${c.toPlatform}"][data-attr-id="${c.toAttrId}"][data-side="${c.toSide}"]`);
         if (!fromDot || !toDot) return;
@@ -741,6 +743,159 @@ function restoreConnections() {
         const conn = { ...c, path };
         mappingState.connections.push(conn);
         path.addEventListener('click', () => removeConnection(conn));
+    });
+}
+
+function collectAttributeValuesForPlatform(platform) {
+    const result = {};
+    document.querySelectorAll(`.attr-value-input[data-platform="${platform}"]`).forEach(input => {
+        if (input.value) result[input.dataset.attrId] = input.value;
+    });
+    const selector = document.getElementById(`category-selector-${platform}`);
+    if (selector?.value) result.__categoryId = selector.value;
+    return result;
+}
+
+function collectAllAttributeValues() {
+    const result = {};
+    ['emag', 'trendyol', 'temu'].forEach(platform => {
+        const values = collectAttributeValuesForPlatform(platform);
+        const categoryId = mappingState.categories[platform];
+        result[platform] = { categoryId: categoryId || null, attributes: values };
+    });
+    return result;
+}
+
+function restoreAttributeValues(platform, values) {
+    Object.entries(values).forEach(([attrId, value]) => {
+        if (attrId === '__categoryId') return;
+        const input = document.querySelector(`.attr-value-input[data-platform="${platform}"][data-attr-id="${attrId}"]`);
+        if (input) input.value = value;
+    });
+}
+
+async function saveAttributesToDB(asin) {
+    try {
+        const listingData = collectAllAttributeValues();
+        const mappings = mappingState.connections.map(({ path: _, ...c }) => c);
+        await fetch(SAVE_PRODUCT_ATTRIBUTES_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ asin, listingData, mappings })
+        });
+    } catch (err) {
+        console.error('Eroare la salvarea atributelor:', err);
+    }
+}
+
+export async function loadProductAttributesFromDB(asin) {
+    try {
+        const res = await fetch(GET_PRODUCT_ATTRIBUTES_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ asin })
+        });
+        if (!res.ok) return;
+        const raw = await res.json();
+        const data = raw?.get_product_attributes_v2 || raw;
+        const listingData = data?.listing_data || {};
+        const mappings = data?.mappings || [];
+        if (!Object.keys(listingData).length && !mappings.length) return;
+        mappingState.savedMappings = mappings;
+        // Restaurare categorii și valori per platformă
+        const platforms = ['emag', 'trendyol', 'temu'];
+        for (const platform of platforms) {
+            const platformData = listingData[platform];
+            if (!platformData?.categoryId) continue;
+            mappingState.savedValues[platform] = platformData.attributes || {};
+            mappingState.categories[platform] = platformData.categoryId;
+            const selector = document.getElementById(`category-selector-${platform}`);
+            if (selector) {
+                // Adaugă opțiunea dacă nu există deja
+                if (!selector.querySelector(`option[value="${platformData.categoryId}"]`)) {
+                    const opt = document.createElement('option');
+                    opt.value = platformData.categoryId;
+                    opt.textContent = `Categorie ${platformData.categoryId}`;
+                    selector.appendChild(opt);
+                }
+                selector.value = platformData.categoryId;
+            }
+            await fetchAndRenderAttributes(platform, platformData.categoryId);
+            restoreAttributeValues(platform, platformData.attributes || {});
+        }
+        restoreConnections();
+        initDragConnect();
+    } catch (err) {
+        console.error('Eroare la încărcarea atributelor:', err);
+    }
+}
+
+export function handleAllCategoriesToggle(checkbox) {
+    const platform = checkbox.dataset.platform;
+    const searchBox = document.getElementById(`all-categories-${platform}`);
+    if (!searchBox) return;
+    searchBox.classList.toggle('hidden', !checkbox.checked);
+    if (checkbox.checked) {
+        const input = document.getElementById(`cat-search-${platform}`);
+        if (input) { input.value = ''; input.focus(); }
+        renderCategoryResults(platform, []);
+    }
+}
+
+export function handleCategorySearch(input) {
+    const platform = input.dataset.platform;
+    clearTimeout(mappingState.searchTimers[platform]);
+    mappingState.searchTimers[platform] = setTimeout(async () => {
+        const search = input.value.trim();
+        try {
+            const res = await fetch(ALL_CATEGORIES_URL, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ platform, search })
+            });
+            if (!res.ok) return;
+            const data = await res.json();
+            renderCategoryResults(platform, data.categories || []);
+        } catch {
+            renderCategoryResults(platform, []);
+        }
+    }, 300);
+}
+
+function renderCategoryResults(platform, categories) {
+    const container = document.getElementById(`cat-results-${platform}`);
+    if (!container) return;
+    if (!categories.length) {
+        container.innerHTML = '<p class="px-2 py-1 text-gray-400 italic">Niciun rezultat</p>';
+        return;
+    }
+    container.innerHTML = categories.map(cat =>
+        `<div class="px-2 py-1.5 hover:bg-blue-50 cursor-pointer border-b border-gray-100 last:border-0 cat-result-item"
+              data-platform="${platform}" data-id="${cat.id}" data-name="${cat.name}">
+            ${cat.name}
+         </div>`
+    ).join('');
+    container.querySelectorAll('.cat-result-item').forEach(item => {
+        item.addEventListener('click', () => {
+            const catPlatform = item.dataset.platform;
+            const catId = item.dataset.id;
+            const catName = item.dataset.name;
+            const selector = document.getElementById(`category-selector-${catPlatform}`);
+            if (selector) {
+                if (!selector.querySelector(`option[value="${catId}"]`)) {
+                    const opt = document.createElement('option');
+                    opt.value = catId;
+                    opt.textContent = catName;
+                    selector.appendChild(opt);
+                }
+                selector.value = catId;
+            }
+            // Ascunde search box + debifează checkbox
+            const checkbox = document.getElementById(`show-all-${catPlatform}`);
+            if (checkbox) checkbox.checked = false;
+            document.getElementById(`all-categories-${catPlatform}`)?.classList.add('hidden');
+            handleCategoryChange(catPlatform, catId);
+        });
     });
 }
 

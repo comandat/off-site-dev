@@ -3,7 +3,7 @@ import { AppState, fetchDataAndSyncState, fetchProductDetailsInBulk, fetchFinanc
 import { state } from './state.js';
 import { fuzzySearch } from './utils.js';
 import { templates, renderImageGallery, initializeSortable } from './templates.js';
-import { fetchAndRenderCompetition } from './product-details.js';
+import { fetchAndRenderCompetition, loadProductAttributesFromDB } from './product-details.js';
 
 const mainContent = document.getElementById('main-content');
 const sidebarButtons = document.querySelectorAll('.sidebar-btn');
@@ -179,5 +179,6 @@ export async function renderView(viewId, context = {}) {
              initializeSortable();
         }
         fetchAndRenderCompetition(foundProduct.asin);
+        loadProductAttributesFromDB(foundProduct.asin);
     }
 }

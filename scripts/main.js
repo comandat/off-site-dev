@@ -25,7 +25,9 @@ import {
     handleImageTranslation,
     handleDescriptionRefresh,
     handleCategoryChange,
-    handleAiFillAttributes
+    handleAiFillAttributes,
+    handleAllCategoriesToggle,
+    handleCategorySearch
 } from './product-details.js';
 
 // --- FUNCȚIE HELPER PENTRU PALEȚI ---
@@ -452,6 +454,9 @@ document.addEventListener('DOMContentLoaded', async () => {
             const filter = event.target.value.toLowerCase();
             document.querySelectorAll('#language-list .language-option').forEach(l => l.style.display = l.textContent.toLowerCase().includes(filter) ? '' : 'none');
         }
+        else if (event.target.id?.startsWith('cat-search-')) {
+            handleCategorySearch(event.target);
+        }
         else if (event.target.id === 'product-search-input') {
             state.currentSearchQuery = event.target.value;
             clearTimeout(state.searchTimeout);
@@ -470,8 +475,13 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // Listener Change (Dropdown Financiar)
     mainContent.addEventListener('change', async (event) => {
-        if (event.target.id === 'category-selector') {
-            await handleCategoryChange(event.target.value);
+        if (event.target.id?.startsWith('category-selector-')) {
+            const platform = event.target.id.replace('category-selector-', '');
+            await handleCategoryChange(platform, event.target.value);
+            return;
+        }
+        if (event.target.id?.startsWith('show-all-')) {
+            handleAllCategoriesToggle(event.target);
             return;
         }
         if (event.target.id === 'financiar-command-select') {
