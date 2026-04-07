@@ -1,8 +1,5 @@
-// scripts/templates.js
 import { state } from './state.js';
 import { languages, languageNameToCodeMap } from './constants.js';
-
-// --- HELPERS PENTRU TEMPLATES ---
 
 export function initializeSortable() {
     const thumbsContainer = document.getElementById('thumbnails-container');
@@ -587,59 +584,48 @@ financiarProductTable: (products, detailsMap, commandId, calculatedData = null) 
     },
 
     competition: (competitionData) => {
-        let cardsHTML = '';
-        for (let i = 1; i <= 5; i++) {
-            const name = competitionData[`productname_${i}`];
-            if (!name) break;
+        const competitors = competitionData?.competitors || [];
+        if (competitors.length === 0) {
+            return `<div class="p-8 text-center text-gray-500">Nu există date de competiție pentru acest produs.</div>`;
+        }
 
-            const image = competitionData[`productimage_${i}`] || '';
-            const url = competitionData[`producturl_${i}`] || '#';
-            const rating = competitionData[`rating_${i}`];
-            const reviews = competitionData[`reviewscount_${i}`] || '';
-            const oldPrice = competitionData[`oldprice_${i}`];
-            const currentPrice = competitionData[`currentprice_${i}`] || '';
-            const promoLabel = competitionData[`promotionlabel_${i}`];
-            const dealLabel = competitionData[`dealtype_${i}`];
+        const cardsHTML = competitors.map(comp => {
+            const labelText = comp.promotion_label || comp.deal_type;
+            const labelHTML = labelText
+                ? `<span class="absolute top-2 left-2 bg-blue-500 text-white text-xs font-bold px-2 py-1 rounded">${labelText}</span>`
+                : '';
 
-            let labelHTML = '';
-            const labelText = promoLabel || dealLabel;
-            if (labelText) {
-                labelHTML = `<span class="absolute top-2 left-2 bg-blue-500 text-white text-xs font-bold px-2 py-1 rounded">${labelText}</span>`;
-            }
+            const oldPriceHTML = comp.price_old
+                ? `<p class="text-sm text-gray-500 line-through">${comp.price_old}</p>`
+                : '';
 
-            let priceHTML = '';
-            if (oldPrice) {
-                priceHTML += `<p class="text-sm text-gray-500 line-through">${oldPrice}</p>`;
-            }
-            priceHTML += `<p class="text-xl font-bold text-red-600">${currentPrice}</p>`;
-
-            cardsHTML += `
+            return `
                 <div class="w-full max-w-xs bg-white rounded-lg shadow-md overflow-hidden flex flex-col">
                     <div class="relative w-full h-48">
-                        <img src="${image}" alt="${name}" class="w-full h-full object-contain p-2">
+                        <img src="${comp.image || ''}" alt="${comp.name}" class="w-full h-full object-contain p-2">
                         ${labelHTML}
                     </div>
                     <div class="p-4 flex-1 flex flex-col justify-between">
                         <div>
                             <div class="flex items-center space-x-1 mb-1">
-                                ${renderCompetitionStars(rating)}
-                                <span class="text-sm text-gray-500">${reviews}</span>
+                                ${renderCompetitionStars(comp.rating)}
+                                <span class="text-sm text-gray-500">${comp.reviews_count || ''}</span>
                             </div>
-                            <h3 data-competition-title="${i}" class="font-semibold text-gray-800 text-sm h-20 overflow-hidden line-clamp-3">${name}</h3>
+                            <h3 class="font-semibold text-gray-800 text-sm h-20 overflow-hidden line-clamp-3">${comp.name}</h3>
                         </div>
                         <div>
                             <div class="mt-2 mb-3">
-                                ${priceHTML}
+                                ${oldPriceHTML}
+                                <p class="text-xl font-bold text-red-600">${comp.price_current || ''}</p>
                             </div>
-                            <a href="${url}" target="_blank" rel="noopener noreferrer"
+                            <a href="${comp.url || '#'}" target="_blank" rel="noopener noreferrer"
                                class="block w-full text-center px-4 py-2 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-700 transition-colors">
                                Vezi Produsul
                             </a>
                         </div>
                     </div>
-                </div>
-            `;
-        }
+                </div>`;
+        }).join('');
 
         return `<div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">${cardsHTML}</div>`;
     },

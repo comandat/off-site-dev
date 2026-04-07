@@ -1,32 +1,29 @@
-// scripts/product-details.js
 import { state } from './state.js';
-import { 
-    languageNameToCodeMap, 
-    COMPETITION_WEBHOOK_URL, 
-    TITLE_GENERATION_WEBHOOK_URL, 
-    TRANSLATION_WEBHOOK_URL, 
+import {
+    languageNameToCodeMap,
+    COMPETITION_WEBHOOK_URL,
+    TITLE_GENERATION_WEBHOOK_URL,
+    TRANSLATION_WEBHOOK_URL,
     IMAGE_TRANSLATION_WEBHOOK_URL,
-    DESCRIPTION_GENERATION_WEBHOOK_URL 
+    DESCRIPTION_GENERATION_WEBHOOK_URL
 } from './constants.js';
 import { renderImageGallery, initializeSortable, templates } from './templates.js';
 import { saveProductDetails } from './data.js';
 
-// --- IMAGE HELPERS ---
+const cleanImages = (images) =>
+    [...new Set((images || []).filter(img => img))];
+
 export function getCurrentImagesArray() {
     const key = state.activeVersionKey;
     if (key === 'origin') {
-        if (!state.editedProductData.images) {
-            state.editedProductData.images = [];
-        }
+        if (!state.editedProductData.images) state.editedProductData.images = [];
         return [...state.editedProductData.images];
     }
 
     if (!state.editedProductData.other_versions) state.editedProductData.other_versions = {};
     if (!state.editedProductData.other_versions[key]) state.editedProductData.other_versions[key] = {};
 
-    if (!state.editedProductData.other_versions[key].images) {
-        return null; 
-    }
+    if (!state.editedProductData.other_versions[key].images) return null;
 
     return [...state.editedProductData.other_versions[key].images];
 }
@@ -45,46 +42,34 @@ export function setCurrentImagesArray(imagesArray) {
 }
 
 
-// --- TAB DATA MANAGEMENT ---
 export function saveCurrentTabData() {
     const titleEl = document.getElementById('product-title');
     if (!titleEl) return;
 
     const title = titleEl.value;
-
-    let description = '';
-    if (state.descriptionEditorMode === 'raw') {
-        const rawEl = document.getElementById('product-description-raw');
-        if(rawEl) description = rawEl.value;
-    } else {
-        const previewEl = document.getElementById('product-description-preview');
-        if(previewEl) description = previewEl.innerHTML;
-    }
+    const description = state.descriptionEditorMode === 'raw'
+        ? (document.getElementById('product-description-raw')?.value || '')
+        : (document.getElementById('product-description-preview')?.innerHTML || '');
 
     const key = state.activeVersionKey;
 
-    // 1. Salvează titlul și descrierea
     if (key === 'origin') {
         state.editedProductData.title = title;
         state.editedProductData.description = description;
     } else {
         if (!state.editedProductData.other_versions) state.editedProductData.other_versions = {};
         if (!state.editedProductData.other_versions[key]) state.editedProductData.other_versions[key] = {};
-
         state.editedProductData.other_versions[key].title = title;
         state.editedProductData.other_versions[key].description = description;
     }
 
-    // 2. Salvează imaginile
     const thumbsContainer = document.getElementById('thumbnails-container');
     if (thumbsContainer) {
-        let currentImages = [];
+        const currentImages = [];
         thumbsContainer.querySelectorAll('[data-image-src]').forEach(el => {
             currentImages.push(el.dataset.imageSrc);
         });
-        
-        const uniqueCurrentImages = [...new Set(currentImages)];
-        setCurrentImagesArray(uniqueCurrentImages);
+        setCurrentImagesArray([...new Set(currentImages)]);
     }
 }
 
@@ -165,12 +150,13 @@ export async function fetchAndRenderCompetition(asin) {
         const response = await fetch(COMPETITION_WEBHOOK_URL, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ asin: asin })
+            body: JSON.stringify({ asin })
         });
 
         if (!response.ok) throw new Error('Eroare la preluarea datelor de competiție');
 
-        const data = await response.json();
+        const rawData = await response.json();
+        const data = rawData?.[0]?.get_competition_v2 || rawData || {};
         state.competitionDataCache = data;
         container.innerHTML = templates.competition(data);
     } catch (error) {
@@ -179,76 +165,41 @@ export async function fetchAndRenderCompetition(asin) {
     }
 }
 
-/**
- * Salvează datele curente ale produsului (fără UI)
- * @returns {Promise<boolean>} - True dacă salvarea a reușit, false altfel.
- */
 export async function saveProductCoreData() {
     try {
-        // 1. Salvează datele de pe tab-ul pe care ești acum
         saveCurrentTabData();
-        
-        // 2. Salvează datele globale (brand, preț)
+
         state.editedProductData.brand = document.getElementById('product-brand').value;
         const priceValue = document.getElementById('product-price').value;
         state.editedProductData.price = priceValue.trim() === '' ? null : priceValue;
-        
-        // --- Funcția helper pentru padare ---
-        function padImagesArray(imagesArray) {
-            const fillValue = ""; 
-            
-            if (!imagesArray || !Array.isArray(imagesArray)) {
-                return new Array(5).fill(fillValue);
-            }
-            
-            const validImages = imagesArray.filter(img => img);
-            const uniqueImages = [...new Set(validImages)];
-            
-            const paddedArray = new Array(5).fill(fillValue);
-            
-            for (let i = 0; i < uniqueImages.length && i < 5; i++) {
-                paddedArray[i] = uniqueImages[i];
-            }
-            
-            return paddedArray;
-        }
-        
-        // 3. Creăm un "payload" PENTRU STAREA LOCALĂ (o copie)
-        const payload = JSON.parse(JSON.stringify(state.editedProductData));
-        
-        // 3a. Pad-ăm imaginile 'origin'
-        payload.images = padImagesArray(payload.images);
-        
-        // 3b. Pad-ăm imaginile din 'other_versions'
-        if (payload.other_versions) {
-            for (const langName in payload.other_versions) {
-                 payload.other_versions[langName].images = padImagesArray(payload.other_versions[langName].images);
+
+        const localCopy = JSON.parse(JSON.stringify(state.editedProductData));
+        localCopy.images = cleanImages(localCopy.images);
+
+        if (localCopy.other_versions) {
+            for (const langName in localCopy.other_versions) {
+                localCopy.other_versions[langName].images = cleanImages(localCopy.other_versions[langName].images);
             }
         }
 
-        // 4. PREGĂTIM PAYLOAD-UL FINAL PENTRU SERVER (cu chei convertite "ro", "de", etc.)
-        const payloadForServer = JSON.parse(JSON.stringify(payload));
+        const payloadForServer = JSON.parse(JSON.stringify(localCopy));
         if (payloadForServer.other_versions) {
-            const newOtherVersions = {};
+            const converted = {};
             for (const [langName, langData] of Object.entries(payloadForServer.other_versions)) {
                 const langCode = (languageNameToCodeMap[langName.toLowerCase()] || langName).toLowerCase();
-                newOtherVersions[langCode] = langData;
+                converted[langCode] = langData;
             }
-            payloadForServer.other_versions = newOtherVersions;
+            payloadForServer.other_versions = converted;
         }
-        
+
         const asin = document.getElementById('product-asin').value;
-        
-        // 5. Trimitem la server payload-ul CURĂȚAT, PAD-AT și RE-CHEIAT
         const success = await saveProductDetails(asin, payloadForServer);
-        
+
         if (success) {
-            // 6. Actualizăm starea locală cu datele PADATE, dar FĂRĂ chei convertite
-            state.editedProductData = JSON.parse(JSON.stringify(payload));
+            state.editedProductData = localCopy;
             return true;
-        } else {
-            return false;
         }
+        return false;
     } catch (error) {
         console.error("Eroare în saveProductCoreData:", error);
         return false;
@@ -277,54 +228,51 @@ export async function handleProductSave(actionButton) {
 }
 
 export async function handleTitleRefresh(actionButton) {
-    const refreshBtn = actionButton;
-    const refreshIcon = refreshBtn.querySelector('.refresh-icon');
-    const refreshSpinner = refreshBtn.querySelector('.refresh-spinner');
-    
+    const refreshIcon = actionButton.querySelector('.refresh-icon');
+    const refreshSpinner = actionButton.querySelector('.refresh-spinner');
+
     const originTitle = state.editedProductData.title;
     const originDescription = state.editedProductData.description;
-    const competitionCache = state.competitionDataCache;
     const currentAsin = document.getElementById('product-asin')?.value;
-    
-    // VERIFICARE: Am eliminat competitionCache din lista obligatorie
+
     if (!originTitle || !originDescription || !currentAsin) {
         alert('Eroare: Datele minime necesare (Titlu, Descriere, ASIN) nu sunt disponibile.');
         return;
     }
-    
+
     refreshIcon.classList.add('hidden');
     refreshSpinner.classList.remove('hidden');
-    refreshBtn.disabled = true;
-    
-    const payload = { asin: currentAsin, title: originTitle, description: originDescription };
-    
-    // LOGICĂ SAFE: Dacă avem competitionCache, îl folosim. Dacă nu, folosim {} pentru a nu da eroare.
-    // Aceasta asigură că datele sunt trimise DACĂ EXISTĂ.
-    const safeCompetitionData = competitionCache || {};
+    actionButton.disabled = true;
 
-    for (let i = 1; i <= 5; i++) { 
-        payload[`competition_${i}_title`] = safeCompetitionData[`productname_${i}`] || null; 
-    }
-    
+    const competitors = (state.competitionDataCache?.competitors || [])
+        .map(c => c.name)
+        .filter(Boolean);
+
+    const payload = {
+        asin: currentAsin,
+        title: originTitle,
+        description: originDescription,
+        competitors
+    };
+
     try {
-        const response = await fetch(TITLE_GENERATION_WEBHOOK_URL, { 
-            method: 'POST', 
-            headers: { 'Content-Type': 'application/json' }, 
-            body: JSON.stringify(payload) 
+        const response = await fetch(TITLE_GENERATION_WEBHOOK_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
         });
-        if (!response.ok) { throw new Error(`Eroare HTTP: ${response.status}`); }
-        
+        if (!response.ok) throw new Error(`Eroare HTTP: ${response.status}`);
+
         const result = await response.json();
-        
+
         if (result.output) {
-            const newTitle = result.output;
-            document.getElementById('product-title').value = newTitle;
-            const roKey = 'romanian';
+            document.getElementById('product-title').value = result.output;
+            const roKey = 'Romanian';
             if (!state.editedProductData.other_versions) state.editedProductData.other_versions = {};
             if (!state.editedProductData.other_versions[roKey]) state.editedProductData.other_versions[roKey] = {};
-            state.editedProductData.other_versions[roKey].title = newTitle;
-        } else { 
-            throw new Error('Răspuns invalid de la server.'); 
+            state.editedProductData.other_versions[roKey].title = result.output;
+        } else {
+            throw new Error('Răspuns invalid de la server.');
         }
     } catch (error) {
         console.error('Eroare la generarea titlului:', error);
@@ -332,57 +280,48 @@ export async function handleTitleRefresh(actionButton) {
     } finally {
         refreshIcon.classList.remove('hidden');
         refreshSpinner.classList.add('hidden');
-        refreshBtn.disabled = false;
+        actionButton.disabled = false;
     }
 }
 
 export async function handleDescriptionRefresh(actionButton) {
-    const refreshBtn = actionButton;
-    const refreshIcon = refreshBtn.querySelector('.refresh-icon');
-    const refreshSpinner = refreshBtn.querySelector('.refresh-spinner');
-    
-    // Preluăm datele 'origin', conform cerinței
+    const refreshIcon = actionButton.querySelector('.refresh-icon');
+    const refreshSpinner = actionButton.querySelector('.refresh-spinner');
+
     const originTitle = state.editedProductData.title;
     const originDescription = state.editedProductData.description;
-    
+
     if (!originTitle || !originDescription) {
         alert('Eroare: Titlul sau descrierea "origin" nu sunt disponibile.');
         return;
     }
-    
+
     refreshIcon.classList.add('hidden');
     refreshSpinner.classList.remove('hidden');
-    refreshBtn.disabled = true;
-    
-    const payload = { title: originTitle, description: originDescription };
-    
+    actionButton.disabled = true;
+
     try {
-        const response = await fetch(DESCRIPTION_GENERATION_WEBHOOK_URL, { 
-            method: 'POST', 
-            headers: { 'Content-Type': 'application/json' }, 
-            body: JSON.stringify(payload) 
+        const response = await fetch(DESCRIPTION_GENERATION_WEBHOOK_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ title: originTitle, description: originDescription })
         });
-        if (!response.ok) { throw new Error(`Eroare HTTP: ${response.status}`); }
-        
+        if (!response.ok) throw new Error(`Eroare HTTP: ${response.status}`);
+
         const result = await response.json();
-        
+
         if (result.output) {
-            const newDescription = result.output;
-            
-            // Actualizează UI
             const rawEl = document.getElementById('product-description-raw');
             const previewEl = document.getElementById('product-description-preview');
-            if (rawEl) rawEl.value = newDescription;
-            if (previewEl) previewEl.innerHTML = newDescription;
+            if (rawEl) rawEl.value = result.output;
+            if (previewEl) previewEl.innerHTML = result.output;
 
-            // Actualizează state pentru tab-ul 'romanian'
-            const roKey = 'romanian';
+            const roKey = 'Romanian';
             if (!state.editedProductData.other_versions) state.editedProductData.other_versions = {};
             if (!state.editedProductData.other_versions[roKey]) state.editedProductData.other_versions[roKey] = {};
-            state.editedProductData.other_versions[roKey].description = newDescription;
-
-        } else { 
-            throw new Error('Răspuns invalid de la server.'); 
+            state.editedProductData.other_versions[roKey].description = result.output;
+        } else {
+            throw new Error('Răspuns invalid de la server.');
         }
     } catch (error) {
         console.error('Eroare la generarea descrierii:', error);
@@ -390,26 +329,23 @@ export async function handleDescriptionRefresh(actionButton) {
     } finally {
         refreshIcon.classList.remove('hidden');
         refreshSpinner.classList.add('hidden');
-        refreshBtn.disabled = false;
+        actionButton.disabled = false;
     }
 }
 
 
 export async function handleTranslationInit(languageOption) {
-    // 1. PREVENIRE CLICK DUBLU
     if (languageOption.hasAttribute('data-processing')) return;
-    
-    // 2. SALVARE DATE (TAB CURENT)
+
     saveCurrentTabData();
 
     const langCode = languageOption.dataset.langCode;
-    const langName = languageOption.textContent; // Salvăm numele limbii
+    const langName = languageOption.textContent;
     const asin = document.getElementById('product-asin').value;
-    
-    // 3. VALIDĂRI PRELIMINARE
+
     const originTitle = state.editedProductData.title || '';
     const originDescription = state.editedProductData.description || '';
-    const originImages = (state.editedProductData.images || []).filter(img => img);
+    const originImages = cleanImages(state.editedProductData.images);
 
     const resetUI = () => {
         languageOption.removeAttribute('data-processing');
@@ -420,69 +356,56 @@ export async function handleTranslationInit(languageOption) {
 
     if (originDescription.trim().length < 50) {
         alert(`Eroare: Descrierea este prea scurtă (${originDescription.trim().length} caractere). Minim necesar: 50.`);
-        return; 
+        return;
     }
-
     if (originTitle.trim().length < 10) {
         alert(`Eroare: Titlul este prea scurt (${originTitle.trim().length} caractere). Minim necesar: 10.`);
-        return; 
+        return;
     }
-
     if (originImages.length < 3) {
-        alert(`Eroare: Produsul are doar ${originImages.length} imagini. Sunt necesare minim 3 imagini pentru a începe traducerea.`);
-        return; 
+        alert(`Eroare: Produsul are doar ${originImages.length} imagini. Sunt necesare minim 3 imagini.`);
+        return;
     }
 
-    // 4. ACTUALIZARE UI - LOADING STATE
     languageOption.setAttribute('data-processing', 'true');
-    languageOption.style.pointerEvents = 'none'; // Blochează click-urile
+    languageOption.style.pointerEvents = 'none';
     languageOption.classList.add('bg-gray-100', 'text-gray-400', 'cursor-not-allowed');
-    
     languageOption.innerHTML = `
         <div class="flex items-center justify-between">
             <span>${langName}</span>
             <div class="w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin ml-2"></div>
-        </div>
-    `;
-    
+        </div>`;
+
     try {
-        const response = await fetch(TRANSLATION_WEBHOOK_URL, { 
-            method: 'POST', 
-            headers: { 'Content-Type': 'application/json' }, 
-            body: JSON.stringify({ asin: asin, language: langCode }) 
+        const response = await fetch(TRANSLATION_WEBHOOK_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ asin, language: langCode })
         });
 
-        if (response.ok) { 
-            // Feedback succes
+        if (response.ok) {
             languageOption.innerHTML = `
                 <div class="flex items-center justify-between text-green-600">
                     <span>${langName}</span>
                     <span class="material-icons text-sm">check</span>
-                </div>
-            `;
-            
+                </div>`;
             setTimeout(() => {
-                 alert(`Traducere pentru ${langCode.toUpperCase()} a fost inițiată cu succes.`);
-                 languageOption.closest('.dropdown-menu')?.classList.add('hidden');
-                 resetUI(); 
+                alert(`Traducere pentru ${langCode.toUpperCase()} a fost inițiată cu succes.`);
+                languageOption.closest('.dropdown-menu')?.classList.add('hidden');
+                resetUI();
             }, 500);
-
-        } else { 
-            alert('Eroare la inițierea traducerii (Răspuns server invalid).'); 
+        } else {
+            alert('Eroare la inițierea traducerii (Răspuns server invalid).');
             resetUI();
         }
-    } catch (error) { 
-        console.error('Eroare Webhook:', error); 
-        alert('Eroare de rețea la inițierea traducerii.'); 
+    } catch (error) {
+        console.error('Eroare Webhook:', error);
+        alert('Eroare de rețea la inițierea traducerii.');
         resetUI();
     }
 }
 
 
-/**
- * Inițiază traducerea AI a imaginilor
- * @param {HTMLElement} button - Butonul care a fost apăsat
- */
 export async function handleImageTranslation(button) {
     const originalText = button.innerHTML;
     button.disabled = true;
@@ -490,53 +413,32 @@ export async function handleImageTranslation(button) {
 
     try {
         const asin = document.getElementById('product-asin')?.value;
-        const activeKey = state.activeVersionKey; 
-        
-        const originImagesWithValues = (state.editedProductData.images || []).filter(img => img);
-        const originImages = [...new Set(originImagesWithValues)];
-        
+        const activeKey = state.activeVersionKey;
+        const originImages = cleanImages(state.editedProductData.images).slice(0, 5);
         const langCode = (languageNameToCodeMap[activeKey.toLowerCase()] || activeKey).toLowerCase();
 
         if (!asin) throw new Error("ASIN-ul produsului nu a fost găsit.");
         if (!langCode || langCode === 'origin') throw new Error("Limba selectată este invalidă pentru traducere.");
-        if (originImages.length === 0) throw new Error("Nu există imagini 'origin' de tradus. Copiați-le mai întâi.");
-        
-        if (IMAGE_TRANSLATION_WEBHOOK_URL.includes('URL_WEBHOOK_TRADUCERE_IMAGINI')) {
-             throw new Error("URL-ul pentru traducerea imaginilor nu a fost configurat în constants.js");
-        }
-
-        const payloadData = { asin: asin, lang: langCode };
-        originImages.forEach((url, index) => {
-            if (index < 5) payloadData[`image${index + 1}`] = url;
-        });
-        
-        const payload = [payloadData];
-        console.log("Trimitere payload pentru traducere imagini:", payload);
+        if (originImages.length === 0) throw new Error("Nu există imagini 'origin' de tradus.");
 
         const response = await fetch(IMAGE_TRANSLATION_WEBHOOK_URL, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
+            body: JSON.stringify([{ asin, lang: langCode, images: originImages }])
         });
 
-        if (!response.ok) {
-            const errorText = await response.text();
-            throw new Error(`Eroare HTTP: ${response.status}. ${errorText}`);
-        }
+        if (!response.ok) throw new Error(`Eroare HTTP: ${response.status}`);
 
         const result = await response.json();
-
         if (result.status === 'success') {
-            alert('Traducerea imaginilor a fost inițiată cu succes! Se reîncarcă datele...');
-            return true; 
-        } else {
-            throw new Error('Webhook-ul a răspuns, dar nu cu status "success".');
+            alert('Traducerea imaginilor a fost inițiată cu succes!');
+            return true;
         }
-
+        throw new Error('Webhook-ul a răspuns, dar nu cu status "success".');
     } catch (error) {
         console.error('Eroare la inițierea traducerii imaginilor:', error);
         alert(`A apărut o eroare: ${error.message}`);
-        return false; 
+        return false;
     } finally {
         button.disabled = false;
         button.innerHTML = originalText;
