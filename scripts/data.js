@@ -1,27 +1,28 @@
-// scripts/data.js
 import { GET_FINANCIAL_WEBHOOK_URL, GET_PALLETS_WEBHOOK_URL } from './constants.js';
 
-// --- CONFIGURARE WEBHOOKS ---
 const DATA_FETCH_URL = 'https://automatizare.comandat.ro/webhook/5a447557-8d52-463e-8a26-5902ccee8177';
-const PRODUCT_DETAILS_URL = 'https://automatizare.comandat.ro/webhook/39e78a55-36c9-4948-aa2d-d9301c996562-test';
-const PRODUCT_UPDATE_URL = 'https://automatizare.comandat.ro/webhook/eecb8515-6092-47b0-af12-f10fb23407fa';
+const PRODUCT_DETAILS_URL = 'https://automatizare.comandat.ro/webhook/v2-product-details';
+const PRODUCT_UPDATE_URL = 'https://automatizare.comandat.ro/webhook/v2-update-product';
 
-// Cache in-memorie pentru detalii produse
 const productCache = {};
 
-// --- MANAGEMENT STARE APLICAȚIE ---
+const enforceHttps = (url) =>
+    url && typeof url === 'string' && url.startsWith('http://')
+        ? url.replace(/^http:\/\//i, 'https://')
+        : url;
+
+const sanitizeImages = (images) =>
+    Array.isArray(images) ? images.map(enforceHttps) : [];
+
 export const AppState = {
     getCommands: () => JSON.parse(sessionStorage.getItem('liveCommandsData') || '[]'),
     setCommands: (commands) => sessionStorage.setItem('liveCommandsData', JSON.stringify(commands)),
 
     getProductDetails: (asin) => productCache[asin] || null,
-    setProductDetails: (asin, data) => {
-        productCache[asin] = data;
-    },
+    setProductDetails: (asin, data) => { productCache[asin] = data; },
     clearProductCache: (asin) => {
         if (asin && productCache[asin]) {
             delete productCache[asin];
-            // Păstrăm log-ul activ pentru debugging
             console.log(`Cache invalidat pentru ASIN: ${asin}`);
         }
     },
@@ -71,70 +72,70 @@ export async function fetchDataAndSyncState() {
     } catch (error) { console.error('Sincronizarea datelor a eșuat:', error); return false; }
 }
 
-export async function fetchProductDetailsInBulk(asins) {
-    const results = {}, asinsToFetch = [];
-    asins.forEach(asin => { const cachedData = AppState.getProductDetails(asin); if (cachedData) results[asin] = cachedData; else asinsToFetch.push(asin); });
-    if (asinsToFetch.length === 0) return results;
-    try {
-        const response = await fetch(PRODUCT_DETAILS_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ asins: asinsToFetch }) });
-        if (!response.ok) throw new Error(`Eroare la preluarea detaliilor`);
-        const responseData = await response.json();
-        const bulkData = responseData?.get_product_details_dynamically_test?.products || {};
-        
-        asinsToFetch.forEach(asin => {
-            const productData = bulkData[asin] || { title: 'N/A', images: [], description: '', features: {}, brand: '', price: '', category: '', categoryId: null, other_versions: {} };
-            
-            // --- FIX MIXED CONTENT (HTTP -> HTTPS) ---
-            if (productData.images && Array.isArray(productData.images)) {
-                productData.images = productData.images.map(img => {
-                    if (img && typeof img === 'string' && img.startsWith('http://')) {
-                        return img.replace(/^http:\/\//i, 'https://');
-                    }
-                    return img;
-                });
-            }
-            // -----------------------------------------
+const EMPTY_PRODUCT = Object.freeze({
+    title: 'N/A', images: [], description: '', features: {},
+    brand: '', price: '', category: '', categoryId: null, other_versions: {}
+});
 
+export async function fetchProductDetailsInBulk(asins) {
+    const results = {};
+    const asinsToFetch = [];
+
+    asins.forEach(asin => {
+        const cached = AppState.getProductDetails(asin);
+        if (cached) results[asin] = cached;
+        else asinsToFetch.push(asin);
+    });
+
+    if (asinsToFetch.length === 0) return results;
+
+    try {
+        const response = await fetch(PRODUCT_DETAILS_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ asins: asinsToFetch })
+        });
+        if (!response.ok) throw new Error(`Eroare la preluarea detaliilor`);
+
+        const responseData = await response.json();
+        const bulkData = responseData?.[0]?.get_product_details_v2?.products || {};
+
+        asinsToFetch.forEach(asin => {
+            const raw = bulkData[asin] || { ...EMPTY_PRODUCT };
+            const productData = {
+                ...raw,
+                images: sanitizeImages(raw.images)
+            };
             AppState.setProductDetails(asin, productData);
             results[asin] = productData;
         });
     } catch (error) {
         console.error('Eroare la preluarea detaliilor produselor:', error);
-        asinsToFetch.forEach(asin => { results[asin] = { title: 'Eroare', images: [], description: '', features: {}, brand: '', price: '', category: '', categoryId: null, other_versions: {} }; });
+        asinsToFetch.forEach(asin => {
+            results[asin] = { ...EMPTY_PRODUCT, title: 'Eroare' };
+        });
     }
     return results;
 }
 
 export async function saveProductDetails(asin, updatedData) {
-    function makeQueryFriendly(str) { return str ? str.replace(/'/g, " ") : str; }
-    const processedData = JSON.parse(JSON.stringify(updatedData));
-    if (!processedData.features || typeof processedData.features !== 'object') processedData.features = {};
-    if (processedData.other_versions) {
-        for (const langCode in processedData.other_versions) {
-            const version = processedData.other_versions[langCode];
-            if (version && typeof version === 'object') {
-                if (!version.features || typeof version.features !== 'object') version.features = {};
-            }
-        }
-    }
-    if (processedData.title) processedData.title = makeQueryFriendly(processedData.title);
-    if (processedData.description) processedData.description = makeQueryFriendly(processedData.description);
-    if (processedData.other_versions) {
-        for (const langCode in processedData.other_versions) {
-            const version = processedData.other_versions[langCode];
-            if (version && version.title) version.title = makeQueryFriendly(version.title);
-            if (version && version.description) version.description = makeQueryFriendly(version.description);
-        }
-    }
-    const payload = { asin, updatedData: processedData };
+    const payload = { asin, updatedData };
     try {
         const response = await fetch(PRODUCT_UPDATE_URL, {
-            method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
         });
-        if (!response.ok) { console.error(`Salvarea a eșuat:`, await response.text()); return false; }
+        if (!response.ok) {
+            console.error(`Salvarea a eșuat:`, await response.text());
+            return false;
+        }
         AppState.setProductDetails(asin, updatedData);
         return true;
-    } catch (error) { console.error('Eroare de rețea la salvare:', error); return false; }
+    } catch (error) {
+        console.error('Eroare de rețea la salvare:', error);
+        return false;
+    }
 }
 
 export async function fetchFinancialData() {

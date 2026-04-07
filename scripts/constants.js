@@ -1,22 +1,19 @@
-// scripts/constants.js
+const BASE = 'https://automatizare.comandat.ro/webhook';
 
-export const N8N_UPLOAD_WEBHOOK_URL = 'https://automatizare.comandat.ro/webhook/d92efbca-eaf1-430e-8748-cc6466c82c6e';
-export const COMPETITION_WEBHOOK_URL = 'https://automatizare.comandat.ro/webhook/db241e9f-fe67-40bf-89ae-d06f13b90d09';
-export const TITLE_GENERATION_WEBHOOK_URL = 'https://automatizare.comandat.ro/webhook/0bc8e16e-2ba8-4c3d-ba66-9eb8898ac0ef';
-export const ASIN_UPDATE_WEBHOOK_URL = 'https://automatizare.comandat.ro/webhook/5f107bd7-cc2b-40b7-8bbf-5e3a48667405';
-export const READY_TO_LIST_WEBHOOK_URL = 'https://automatizare.comandat.ro/webhook/124682e2-5f91-4c0a-adf6-4cedf16c2c19';
-export const TRANSLATION_WEBHOOK_URL = 'https://automatizare.comandat.ro/webhook/00e7f965-7cf8-4d96-bb96-b3cbbc2eb27c';
-export const DESCRIPTION_GENERATION_WEBHOOK_URL = 'https://automatizare.comandat.ro/webhook/6b3f30b0-5c57-47b5-9f15-bc8ea8c4960f';
-export const IMAGE_TRANSLATION_WEBHOOK_URL = 'https://automatizare.comandat.ro/webhook/1d3020a8-ecf0-4c46-8611-bd2a284298b5';
+export const N8N_UPLOAD_WEBHOOK_URL = `${BASE}/d92efbca-eaf1-430e-8748-cc6466c82c6e`;
+export const COMPETITION_WEBHOOK_URL = `${BASE}/v2-competition`;
+export const TITLE_GENERATION_WEBHOOK_URL = `${BASE}/v2-ai-title`;
+export const ASIN_UPDATE_WEBHOOK_URL = `${BASE}/v2-register-product`;
+export const READY_TO_LIST_WEBHOOK_URL = `${BASE}/124682e2-5f91-4c0a-adf6-4cedf16c2c19`;
+export const TRANSLATION_WEBHOOK_URL = `${BASE}/v2-multilang-generate`;
+export const DESCRIPTION_GENERATION_WEBHOOK_URL = `${BASE}/v2-remake-description`;
+export const IMAGE_TRANSLATION_WEBHOOK_URL = `${BASE}/v2-image-translation`;
 
-// --- CONSTANTE FINANCIAR ---
-export const GET_FINANCIAL_WEBHOOK_URL = 'https://automatizare.comandat.ro/webhook/get-financial';
-export const SAVE_FINANCIAL_WEBHOOK_URL = 'https://automatizare.comandat.ro/webhook/save-financial';
-
-// --- CONSTANTE NOI (NIR & PALETI) ---
-export const GENERATE_NIR_WEBHOOK_URL = 'https://automatizare.comandat.ro/webhook/generate-nir';
-export const GET_PALLETS_WEBHOOK_URL = 'https://automatizare.comandat.ro/webhook/get-pallets';
-export const INSERT_BALANCE_WEBHOOK_URL = 'https://automatizare.comandat.ro/webhook/insert-balanta';
+export const GET_FINANCIAL_WEBHOOK_URL = `${BASE}/get-financial`;
+export const SAVE_FINANCIAL_WEBHOOK_URL = `${BASE}/save-financial`;
+export const GENERATE_NIR_WEBHOOK_URL = `${BASE}/generate-nir`;
+export const GET_PALLETS_WEBHOOK_URL = `${BASE}/get-pallets`;
+export const INSERT_BALANCE_WEBHOOK_URL = `${BASE}/insert-balanta`;
 
 export const languages = {
     'bg': 'Bulgarian', 'de': 'German', 'ro': 'Romanian', 'hu': 'Hungarian',
