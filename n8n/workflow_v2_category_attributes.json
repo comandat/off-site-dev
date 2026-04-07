@@ -1,0 +1,44 @@
+{
+  "name": "Off-Site v2 - Category Attributes",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "v2-category-attributes",
+        "responseMode": "lastNode",
+        "options": {
+          "allowedOrigins": "*"
+        }
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [340, 460],
+      "id": "wh-cat-attrs",
+      "name": "Webhook Category Attributes",
+      "webhookId": "v2-category-attributes"
+    },
+    {
+      "parameters": {
+        "jsCode": "// ─── v2-category-attributes ─────────────────────────────────────────\n// Input: { platform: 'emag'|'trendyol'|'temu', categoryId: '123' }\n// Output: { attributes: [{ id, name, type, required }] }\n//\n// CONFIGURARE:\n//   Setează variabilele de mediu n8n:\n//     EMAG_API_USER   = username-ul tău eMAG Marketplace\n//     EMAG_API_KEY    = API key-ul tău eMAG Marketplace\n//     TRENDYOL_SUPPLIER_ID = Supplier ID Trendyol\n//     TRENDYOL_API_KEY    = API Key Trendyol\n//     TRENDYOL_API_SECRET = API Secret Trendyol\n// ─────────────────────────────────────────────────────────────────────\n\nconst body = $input.first().json.body || {};\nconst platform = (body.platform || 'emag').toLowerCase();\nconst categoryId = body.categoryId;\n\nif (!categoryId) {\n  return [{ json: { attributes: [], error: 'categoryId lipsă' } }];\n}\n\nlet attributes = [];\n\ntry {\n  if (platform === 'emag') {\n    // ── eMAG Marketplace API ────────────────────────────────────────\n    const emagUser = $env['EMAG_API_USER'] || '';\n    const emagKey  = $env['EMAG_API_KEY']  || '';\n    const authHeader = 'Basic ' + Buffer.from(`${emagUser}:${emagKey}`).toString('base64');\n\n    // Fetch caracteristicile categoriei\n    const data = await $helpers.httpRequest({\n      method: 'POST',\n      url: 'https://marketplace.emag.ro/api-3/characteristic/read',\n      headers: {\n        'Authorization': authHeader,\n        'Content-Type': 'application/json',\n        'Accept': 'application/json'\n      },\n      body: {\n        filters: [\n          { name: 'category_id', value: parseInt(categoryId) }\n        ],\n        count: 200,\n        currentPage: 1\n      },\n      json: true\n    });\n\n    const results = data.results || [];\n    attributes = results.map(attr => ({\n      id: String(attr.id),\n      name: attr.name || `Atribut ${attr.id}`,\n      // type_id: 1=text, 2=select/radio, 3=number, 4=multiselect\n      type: [2, 4].includes(attr.type_id) ? 'select' : 'text',\n      required: attr.required === 1 || attr.required === true,\n      values: (attr.values || []).map(v => ({ id: String(v.id), name: v.name }))\n    }));\n\n  } else if (platform === 'trendyol') {\n    // ── Trendyol API ────────────────────────────────────────────────\n    const supplierId = $env['TRENDYOL_SUPPLIER_ID'] || '';\n    const apiKey    = $env['TRENDYOL_API_KEY']    || '';\n    const apiSecret = $env['TRENDYOL_API_SECRET'] || '';\n    const authHeader = 'Basic ' + Buffer.from(`${apiKey}:${apiSecret}`).toString('base64');\n\n    const data = await $helpers.httpRequest({\n      method: 'GET',\n      url: `https://api.trendyol.com/sapigw/product/category-attributes/${categoryId}`,\n      headers: {\n        'Authorization': authHeader,\n        'User-Agent': `${supplierId} - SelfIntegration`,\n        'Accept': 'application/json'\n      },\n      json: true\n    });\n\n    const trendyolAttrs = data.categoryAttributes || [];\n    attributes = trendyolAttrs.map(attr => ({\n      id: String(attr.attribute?.id || attr.id),\n      name: attr.attribute?.name || attr.name || `Atribut ${attr.id}`,\n      type: (attr.attributeValues && attr.attributeValues.length > 0) ? 'select' : 'text',\n      required: attr.required === true,\n      values: (attr.attributeValues || []).map(v => ({ id: String(v.id), name: v.name }))\n    }));\n\n  } else if (platform === 'temu') {\n    // ── Temu — API propriu / placeholder ───────────────────────────\n    // Temu nu are API public standard. Adaptează după integrarea ta.\n    attributes = [\n      { id: 'temu_brand',       name: 'Brand',         type: 'text',   required: true,  values: [] },\n      { id: 'temu_color',       name: 'Culoare',       type: 'select', required: false, values: [] },\n      { id: 'temu_size',        name: 'Dimensiune',    type: 'select', required: false, values: [] },\n      { id: 'temu_material',    name: 'Material',      type: 'text',   required: false, values: [] },\n      { id: 'temu_description', name: 'Descriere',     type: 'text',   required: false, values: [] }\n    ];\n  }\n\n} catch (err) {\n  console.error(`[v2-category-attributes] Eroare pentru ${platform} / cat ${categoryId}:`, err.message);\n  return [{ json: { attributes: [], error: err.message } }];\n}\n\nreturn [{ json: { attributes } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [560, 460],
+      "id": "code-cat-attrs",
+      "name": "Fetch Category Attributes"
+    }
+  ],
+  "connections": {
+    "Webhook Category Attributes": {
+      "main": [
+        [
+          {
+            "node": "Fetch Category Attributes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}
