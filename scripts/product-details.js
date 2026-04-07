@@ -156,7 +156,7 @@ export async function fetchAndRenderCompetition(asin) {
         if (!response.ok) throw new Error('Eroare la preluarea datelor de competiție');
 
         const rawData = await response.json();
-        const data = rawData?.[0]?.get_competition_v2 || rawData || {};
+        const data = rawData?.get_competition_v2 || rawData || {};
         state.competitionDataCache = data;
         container.innerHTML = templates.competition(data);
     } catch (error) {
