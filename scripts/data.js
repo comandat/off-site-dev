@@ -98,7 +98,7 @@ export async function fetchProductDetailsInBulk(asins) {
         if (!response.ok) throw new Error(`Eroare la preluarea detaliilor`);
 
         const responseData = await response.json();
-        const bulkData = responseData?.[0]?.get_product_details_v2?.products || {};
+        const bulkData = responseData?.get_product_details_v2?.products || {};
 
         asinsToFetch.forEach(asin => {
             const raw = bulkData[asin] || { ...EMPTY_PRODUCT };
