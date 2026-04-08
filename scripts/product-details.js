@@ -538,7 +538,12 @@ const mappingState = {
     connections: [],
     dragging: null,
     categories: { emag: null, trendyol: null, temu: null },
+    // savedValues[platform][categoryId] = { attrId: value, ... }
+    // Indexat pe categoryId ca să nu se piardă munca la switch accidental de categorie.
     savedValues: { emag: {}, trendyol: {}, temu: {} },
+    // savedConnections[comboKey] = [{fromPlatform, fromAttrId, ...}, ...]
+    // comboKey = 'emag:X|trendyol:Y|temu:Z' — conexiunile depind de categoriile TUTUROR platformelor.
+    savedConnections: {},
     savedMappings: [],
     searchTimers: {},
     // Când e true, schimbarea categoriei eMAG NU declanșează lookup automat
@@ -546,6 +551,12 @@ const mappingState = {
     // ce a salvat userul anterior.
     _suppressEmagMappingLookup: false
 };
+
+// Construiește cheia de combo din categoriile active pe toate platformele.
+function buildConnectionsKey() {
+    const c = mappingState.categories;
+    return `emag:${c.emag || ''}|trendyol:${c.trendyol || ''}|temu:${c.temu || ''}`;
+}
 
 // Cache pentru valorile predefinite ale atributelor: key = `${platform}-${attrId}`
 const attrValuesCache = new Map();
@@ -576,21 +587,44 @@ export function populateCategorySelector() {
 
 export async function handleCategoryChange(platform, categoryId) {
     if (!categoryId) return;
-    // Salvează valorile curente în memorie înainte de switch
-    if (mappingState.categories[platform]) {
-        mappingState.savedValues[platform] = collectAttributeValuesForPlatform(platform);
+
+    const prevCategoryId = mappingState.categories[platform];
+
+    // 1. Salvează valorile actuale în memorie, indexate pe (platform, categoryId)
+    if (prevCategoryId) {
+        if (!mappingState.savedValues[platform]) mappingState.savedValues[platform] = {};
+        mappingState.savedValues[platform][prevCategoryId] = collectAttributeValuesForPlatform(platform);
     }
+
+    // 2. Salvează conexiunile curente sub cheia combo actuală (înainte de a schimba categoria)
+    const prevKey = buildConnectionsKey();
+    mappingState.savedConnections[prevKey] = mappingState.connections.map(({ path: _, ...c }) => c);
+
+    // 3. Actualizează categoria și șterge liniile de pe ecran
     mappingState.categories[platform] = categoryId;
     clearAllConnections();
+
     const el = document.getElementById(`${platform}-attributes`);
     if (el) el.innerHTML = '<p class="text-xs text-gray-400 italic">Se încarcă...</p>';
     await fetchAndRenderAttributes(platform, categoryId);
-    restoreAttributeValues(platform, mappingState.savedValues[platform] || {});
-    restoreConnections();
+
+    // 4. Restaurează valorile pentru noua categorie (dacă au mai fost pe ea)
+    const restoredValues = mappingState.savedValues[platform]?.[categoryId] || {};
+    restoreAttributeValues(platform, restoredValues);
+
+    // 5. Restaurează conexiunile pentru noul combo de categorii (dacă există în memorie)
+    //    Dacă nu, fallback pe savedMappings din DB (primul load).
+    const newKey = buildConnectionsKey();
+    const memConns = mappingState.savedConnections[newKey];
+    if (memConns && memConns.length) {
+        restoreConnectionsFromList(memConns);
+    } else {
+        restoreConnections();
+    }
     initDragConnect();
 
-    // La schimbarea activă a categoriei eMAG, caută mapări pe Trendyol/Temu
-    // și pre-populează dropdown-urile + fetch caracteristici pentru cea mai bună.
+    // 6. La schimbarea activă a categoriei eMAG, caută mapări pe Trendyol/Temu
+    //    și pre-populează dropdown-urile + fetch caracteristici pentru cea mai bună.
     if (platform === 'emag' && !mappingState._suppressEmagMappingLookup) {
         await applyCategoryMappings(categoryId);
     }
@@ -978,13 +1012,18 @@ function clearAllConnections() {
     mappingState.connections = [];
 }
 
+// Restaurează conexiunile din DB (savedMappings) — folosit la primul load al produsului.
 function restoreConnections() {
-    const toRestore = mappingState.savedMappings.length
-        ? mappingState.savedMappings
-        : [];
+    restoreConnectionsFromList(mappingState.savedMappings);
+}
+
+// Restaurează o listă de conexiuni pe ecran (din memorie sau DB).
+// Conexiunile al căror dot nu există în DOM (categorie diferită) sunt ignorate silențios.
+function restoreConnectionsFromList(list) {
+    if (!list || !list.length) return;
     const svg = document.getElementById('connections-svg');
-    if (!svg || !toRestore.length) return;
-    toRestore.forEach(c => {
+    if (!svg) return;
+    list.forEach(c => {
         const fromDot = document.querySelector(`.connector-dot[data-platform="${c.fromPlatform}"][data-attr-id="${c.fromAttrId}"][data-side="${c.fromSide}"]`);
         const toDot = document.querySelector(`.connector-dot[data-platform="${c.toPlatform}"][data-attr-id="${c.toAttrId}"][data-side="${c.toSide}"]`);
         if (!fromDot || !toDot) return;
@@ -1099,7 +1138,9 @@ export async function loadProductAttributesFromDB(asin) {
             for (const platform of platforms) {
                 const platformData = listingData[platform];
                 if (!platformData?.categoryId) continue;
-                mappingState.savedValues[platform] = platformData.attributes || {};
+                // Salvăm valorile din DB indexate pe (platform, categoryId)
+                if (!mappingState.savedValues[platform]) mappingState.savedValues[platform] = {};
+                mappingState.savedValues[platform][platformData.categoryId] = platformData.attributes || {};
                 mappingState.categories[platform] = platformData.categoryId;
                 const selector = document.getElementById(`category-selector-${platform}`);
                 if (selector) {
@@ -1117,6 +1158,12 @@ export async function loadProductAttributesFromDB(asin) {
             }
             restoreConnections();
             initDragConnect();
+            // Salvăm conexiunile din DB și în memoria locală sub cheia combo curentă,
+            // astfel că un switch accidental și revenire le va restaura din memorie.
+            if (mappings.length) {
+                mappingState.savedConnections[buildConnectionsKey()] =
+                    mappings.map(({ path: _, ...c }) => c);
+            }
         } finally {
             mappingState._suppressEmagMappingLookup = false;
         }
