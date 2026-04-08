@@ -559,7 +559,7 @@ export function populateCategorySelector() {
         return;
     }
     selector.innerHTML = categories.map((cat, i) =>
-        `<option value="${cat.id}"${i === 0 ? ' selected' : ''}>${cat.name} (${cat.count || 0})</option>`
+        `<option value="${cat.id}"${i === 0 ? ' selected' : ''}>${cat.name}</option>`
     ).join('');
     // Triggerează încărcarea atributelor pentru prima categorie din eMAG
     // dar numai dacă nu există deja date din DB (loadProductAttributesFromDB face asta)
@@ -589,7 +589,7 @@ async function fetchAndRenderAttributes(platform, categoryId) {
     if (!container) return;
     // Trimitem și numele categoriei ca fallback pentru căutarea după nume în DB
     const selector = document.getElementById(`category-selector-${platform}`);
-    const categoryName = selector?.selectedOptions?.[0]?.text?.trim() || '';
+    const categoryName = (selector?.selectedOptions?.[0]?.text?.trim() || '').replace(/\s*\(\d+\)\s*$/, '');
     try {
         const response = await fetch(CATEGORY_ATTRIBUTES_WEBHOOK_URL, {
             method: 'POST',
