@@ -600,16 +600,29 @@ export async function handleCategoryChange(platform, categoryId) {
     const prevKey = buildConnectionsKey();
     mappingState.savedConnections[prevKey] = mappingState.connections.map(({ path: _, ...c }) => c);
 
-    // 3. Actualizează categoria și șterge liniile de pe ecran
+    // 3. Actualizează categoria (cu ID-ul original) și șterge liniile de pe ecran
     mappingState.categories[platform] = categoryId;
     clearAllConnections();
 
     const el = document.getElementById(`${platform}-attributes`);
     if (el) el.innerHTML = '<p class="text-xs text-gray-400 italic">Se încarcă...</p>';
-    await fetchAndRenderAttributes(platform, categoryId);
+    const fetchResult = await fetchAndRenderAttributes(platform, categoryId);
+
+    // Dacă webhook-ul a rezolvat un alt ID de categorie (ex: căutare după nume),
+    // actualizăm mappingState cu ID-ul rezolvat și salvăm valorile sub cheia corectă.
+    const resolvedCategoryId = fetchResult?.resolvedCategoryId || categoryId;
+    if (resolvedCategoryId !== categoryId) {
+        // Mută valorile salvate sub cheia originală la cheia rezolvată, dacă există
+        if (mappingState.savedValues[platform]?.[categoryId]) {
+            mappingState.savedValues[platform][resolvedCategoryId] =
+                mappingState.savedValues[platform][categoryId];
+            delete mappingState.savedValues[platform][categoryId];
+        }
+        mappingState.categories[platform] = resolvedCategoryId;
+    }
 
     // 4. Restaurează valorile pentru noua categorie (dacă au mai fost pe ea)
-    const restoredValues = mappingState.savedValues[platform]?.[categoryId] || {};
+    const restoredValues = mappingState.savedValues[platform]?.[resolvedCategoryId] || {};
     restoreAttributeValues(platform, restoredValues);
 
     // 5. Restaurează conexiunile pentru noul combo de categorii (dacă există în memorie)
@@ -625,8 +638,9 @@ export async function handleCategoryChange(platform, categoryId) {
 
     // 6. La schimbarea activă a categoriei eMAG, caută mapări pe Trendyol/Temu
     //    și pre-populează dropdown-urile + fetch caracteristici pentru cea mai bună.
+    //    Folosim resolvedCategoryId (ID-ul canonic din DB) pentru lookup în mappings.
     if (platform === 'emag' && !mappingState._suppressEmagMappingLookup) {
-        await applyCategoryMappings(categoryId);
+        await applyCategoryMappings(resolvedCategoryId);
     }
 }
 
@@ -668,7 +682,7 @@ function populateMappedCategoryDropdown(platform, list) {
 
 async function fetchAndRenderAttributes(platform, categoryId) {
     const container = document.getElementById(`${platform}-attributes`);
-    if (!container) return;
+    if (!container) return null;
     // Trimitem și numele categoriei ca fallback pentru căutarea după nume în DB
     const selector = document.getElementById(`category-selector-${platform}`);
     const categoryName = (selector?.selectedOptions?.[0]?.text?.trim() || '').replace(/\s*\(\d+\)\s*$/, '');
@@ -693,8 +707,13 @@ async function fetchAndRenderAttributes(platform, categoryId) {
             ? attrs.map(attr => renderAttributeRow(attr, platform)).join('')
             : '<p class="text-xs text-gray-400 italic">Nu există caracteristici pentru această categorie</p>';
         initAttrDropdowns(platform);
+        return {
+            resolvedCategoryId: data.resolvedCategoryId ? String(data.resolvedCategoryId) : categoryId,
+            resolvedCategoryName: data.resolvedCategoryName || categoryName
+        };
     } catch {
         container.innerHTML = '<p class="text-xs text-red-400 italic">Caracteristicile vor fi disponibile după configurarea webhook-ului</p>';
+        return null;
     }
 }
 
