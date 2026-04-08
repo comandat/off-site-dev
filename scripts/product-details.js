@@ -541,6 +541,14 @@ const mappingState = {
     searchTimers: {}
 };
 
+// Cache pentru valorile predefinite ale atributelor: key = `${platform}-${attrId}`
+const attrValuesCache = new Map();
+
+// Închide toate dropdown-urile când se dă click în afară
+document.addEventListener('click', () => {
+    document.querySelectorAll('.attr-dropdown-list').forEach(l => l.classList.add('hidden'));
+});
+
 export function populateCategorySelector() {
     const categories = [...(state.competitionDataCache?.suggested_categories || [])];
     categories.sort((a, b) => (b.count || 0) - (a.count || 0));
@@ -579,18 +587,30 @@ export async function handleCategoryChange(platform, categoryId) {
 async function fetchAndRenderAttributes(platform, categoryId) {
     const container = document.getElementById(`${platform}-attributes`);
     if (!container) return;
+    // Trimitem și numele categoriei ca fallback pentru căutarea după nume în DB
+    const selector = document.getElementById(`category-selector-${platform}`);
+    const categoryName = selector?.selectedOptions?.[0]?.text?.trim() || '';
     try {
         const response = await fetch(CATEGORY_ATTRIBUTES_WEBHOOK_URL, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ platform, categoryId })
+            body: JSON.stringify({ platform, categoryId, categoryName })
         });
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const data = await response.json();
         const attrs = Array.isArray(data.attributes) ? data.attributes : [];
+        // Populăm cache-ul de valori pentru dropdown-uri
+        attrValuesCache.clear();
+        attrs.forEach(attr => {
+            const attrId = String(attr.id ?? attr.name ?? '').replace(/[^a-zA-Z0-9_-]/g, '_');
+            if (Array.isArray(attr.values) && attr.values.length > 0) {
+                attrValuesCache.set(`${platform}-${attrId}`, attr.values);
+            }
+        });
         container.innerHTML = attrs.length
             ? attrs.map(attr => renderAttributeRow(attr, platform)).join('')
             : '<p class="text-xs text-gray-400 italic">Nu există caracteristici pentru această categorie</p>';
+        initAttrDropdowns(platform);
     } catch {
         container.innerHTML = '<p class="text-xs text-red-400 italic">Caracteristicile vor fi disponibile după configurarea webhook-ului</p>';
     }
@@ -599,18 +619,113 @@ async function fetchAndRenderAttributes(platform, categoryId) {
 function renderAttributeRow(attr, platform) {
     const attrId = String(attr.id ?? attr.name ?? '').replace(/[^a-zA-Z0-9_-]/g, '_');
     const isRequired = attr.required === true;
+    const allowsCustom = attr.allowsCustom === true;
+    const hasValues = Array.isArray(attr.values) && attr.values.length > 0;
+
     const requiredMark = isRequired ? '<span class="text-red-500 text-xs ml-0.5">*</span>' : '';
     const bgClass = isRequired ? 'bg-amber-50 border border-amber-200' : 'bg-gray-50';
-    const placeholder = isRequired ? 'Obligatoriu...' : 'Valoare...';
+    const labelClass = isRequired ? 'text-amber-800' : 'text-gray-600';
+    const borderClass = isRequired ? 'border-amber-300 focus:border-amber-500' : 'border-gray-300 focus:border-blue-400';
+
+    // Badge allowsCustom — apare doar dacă există valori predefinite
+    const customBadge = hasValues
+        ? (allowsCustom
+            ? `<span class="flex-shrink-0 text-xs bg-green-100 text-green-700 rounded px-1 leading-4 cursor-default" title="Poți introduce și valori personalizate">✏️</span>`
+            : `<span class="flex-shrink-0 text-xs bg-gray-200 text-gray-500 rounded px-1 leading-4 cursor-default" title="Doar valori din listă">🔒</span>`)
+        : '';
+
+    let inputHtml;
+    if (hasValues) {
+        // Dropdown cu search — readonly dacă nu allowsCustom, editabil dacă allowsCustom
+        const readonlyAttr = allowsCustom ? '' : 'readonly';
+        const placeholder = allowsCustom
+            ? (isRequired ? 'Caută sau introdu obligatoriu...' : 'Caută sau introdu valoare...')
+            : (isRequired ? 'Selectează (obligatoriu)...' : 'Selectează valoare...');
+        inputHtml = `<div class="attr-search-dropdown flex-1 relative" data-attr-id="${attrId}" data-platform="${platform}" data-allow-custom="${allowsCustom}">
+            <input type="text" class="attr-value-input w-full text-xs bg-transparent border-0 border-b ${borderClass} focus:outline-none px-0 min-w-0 cursor-pointer"
+                   data-attr-id="${attrId}" data-platform="${platform}" placeholder="${placeholder}" value="${attr.value || ''}" ${readonlyAttr} autocomplete="off">
+            <div class="attr-dropdown-list hidden absolute left-0 right-0 bg-white border border-gray-200 rounded shadow-lg max-h-44 overflow-y-auto" style="top:calc(100% + 2px); z-index:100;"></div>
+        </div>`;
+    } else {
+        // Input text simplu
+        const placeholder = isRequired ? 'Obligatoriu...' : 'Valoare...';
+        inputHtml = `<input type="text" class="attr-value-input flex-1 text-xs bg-transparent border-0 border-b ${borderClass} focus:outline-none px-0 min-w-0"
+               data-attr-id="${attrId}" data-platform="${platform}" placeholder="${placeholder}" value="${attr.value || ''}">`;
+    }
+
     return `<div class="attr-row flex items-center gap-1" data-attr-id="${attrId}" data-platform="${platform}" data-required="${isRequired}">
         <div class="connector-dot bg-gray-300" data-side="left" data-platform="${platform}" data-attr-id="${attrId}"></div>
         <div class="flex-1 flex items-center gap-1.5 ${bgClass} rounded px-2 py-1 min-w-0">
-            <span class="text-xs ${isRequired ? 'text-amber-800' : 'text-gray-600'} font-medium flex-shrink-0 truncate" style="width:45%" title="${attr.name}${isRequired ? ' (obligatoriu)' : ''}">${attr.name}${requiredMark}</span>
-            <input type="text" class="attr-value-input flex-1 text-xs bg-transparent border-0 border-b ${isRequired ? 'border-amber-300 focus:border-amber-500' : 'border-gray-300 focus:border-blue-400'} focus:outline-none px-0 min-w-0"
-                   data-attr-id="${attrId}" data-platform="${platform}" placeholder="${placeholder}" value="${attr.value || ''}">
+            <span class="text-xs ${labelClass} font-medium flex-shrink-0 truncate" style="width:40%" title="${attr.name}${isRequired ? ' (obligatoriu)' : ''}">${attr.name}${requiredMark}</span>
+            ${customBadge}
+            ${inputHtml}
         </div>
         <div class="connector-dot bg-gray-300" data-side="right" data-platform="${platform}" data-attr-id="${attrId}"></div>
     </div>`;
+}
+
+function initAttrDropdowns(platform) {
+    const container = document.getElementById(`${platform}-attributes`);
+    if (!container) return;
+
+    container.querySelectorAll('.attr-search-dropdown').forEach(wrapper => {
+        const input = wrapper.querySelector('.attr-value-input');
+        const list = wrapper.querySelector('.attr-dropdown-list');
+        const allowCustom = wrapper.dataset.allowCustom === 'true';
+        const key = `${platform}-${wrapper.dataset.attrId}`;
+        const values = attrValuesCache.get(key) || [];
+
+        function renderList(filter) {
+            const search = (filter || '').toLowerCase().trim();
+            const filtered = search
+                ? values.filter(v => v.name.toLowerCase().includes(search))
+                : values;
+
+            let html = filtered
+                .map(v => `<div class="attr-dropdown-item px-2 py-1.5 hover:bg-blue-50 cursor-pointer text-xs" data-val="${v.name.replace(/"/g, '&quot;')}">${v.name}</div>`)
+                .join('');
+
+            // Opțiune de valoare personalizată — doar dacă allowCustom și textul nu e deja în listă
+            if (allowCustom && filter && !filtered.some(v => v.name.toLowerCase() === filter.toLowerCase())) {
+                html += `<div class="attr-dropdown-item px-2 py-1.5 hover:bg-green-50 cursor-pointer text-xs text-green-700 italic border-t border-gray-100" data-val="${filter.replace(/"/g, '&quot;')}">✏️ Valoare personalizată: "${filter}"</div>`;
+            }
+
+            list.innerHTML = html;
+            list.classList.toggle('hidden', !html);
+        }
+
+        // Deschide dropdown la focus / click
+        input.addEventListener('focus', (e) => {
+            e.stopPropagation();
+            renderList(allowCustom ? input.value : '');
+        });
+        input.addEventListener('click', (e) => {
+            e.stopPropagation();
+            renderList(allowCustom ? input.value : '');
+        });
+
+        // Filtrare live — doar pentru allowCustom (readonly nu trimite input events)
+        if (allowCustom) {
+            input.addEventListener('input', () => renderList(input.value));
+        }
+
+        // Selectare item
+        list.addEventListener('mousedown', (e) => {
+            // mousedown în loc de click ca să nu pierdem focus-ul înainte de selecție
+            const item = e.target.closest('.attr-dropdown-item');
+            if (!item) return;
+            e.preventDefault();
+            input.value = item.dataset.val;
+            list.classList.add('hidden');
+            input.dispatchEvent(new Event('change', { bubbles: true }));
+        });
+
+        // Închide la blur
+        input.addEventListener('blur', () => {
+            // Mic delay ca mousedown pe item să ruleze primul
+            setTimeout(() => list.classList.add('hidden'), 150);
+        });
+    });
 }
 
 function getDotPos(dot) {
