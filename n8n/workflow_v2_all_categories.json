@@ -12,20 +12,50 @@
       },
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2.1,
-      "position": [340, 460],
+      "position": [240, 460],
       "id": "wh-all-cats",
       "name": "Webhook All Categories",
       "webhookId": "v2-all-categories"
     },
     {
       "parameters": {
-        "jsCode": "// ─── v2-all-categories ───────────────────────────────────────────────\n// Input: { platform: 'emag'|'trendyol'|'temu', search: 'termen' }\n// Output: { categories: [{ id, name }] }  — maxim 50 rezultate\n//\n// CONFIGURARE (variabile de mediu n8n):\n//   EMAG_API_USER, EMAG_API_KEY\n//   TRENDYOL_SUPPLIER_ID, TRENDYOL_API_KEY, TRENDYOL_API_SECRET\n// ─────────────────────────────────────────────────────────────────────\n\nconst body = $input.first().json.body || {};\nconst platform = (body.platform || 'emag').toLowerCase();\nconst searchTerm = (body.search || '').toLowerCase().trim();\nconst MAX_RESULTS = 50;\n\nlet categories = [];\n\ntry {\n  if (platform === 'emag') {\n    // ── eMAG Marketplace API ────────────────────────────────────────\n    const emagUser = $env['EMAG_API_USER'] || '';\n    const emagKey  = $env['EMAG_API_KEY']  || '';\n    const authHeader = 'Basic ' + Buffer.from(`${emagUser}:${emagKey}`).toString('base64');\n\n    // Construim filtrele: dacă există search term, filtrăm după nume\n    const filters = [\n      { name: 'is_leaf', value: 1 }  // doar categorii terminale (cu produse)\n    ];\n\n    const data = await $helpers.httpRequest({\n      method: 'POST',\n      url: 'https://marketplace.emag.ro/api-3/category/read',\n      headers: {\n        'Authorization': authHeader,\n        'Content-Type': 'application/json',\n        'Accept': 'application/json'\n      },\n      body: {\n        filters,\n        count: 200,\n        currentPage: 1\n      },\n      json: true\n    });\n\n    const allCategories = data.results || [];\n\n    // Filtrăm local după search term (dacă există)\n    const filtered = searchTerm\n      ? allCategories.filter(c =>\n          (c.name || '').toLowerCase().includes(searchTerm)\n        )\n      : allCategories;\n\n    categories = filtered\n      .slice(0, MAX_RESULTS)\n      .map(c => ({\n        id: String(c.id),\n        name: c.name || `Categorie ${c.id}`\n      }));\n\n  } else if (platform === 'trendyol') {\n    // ── Trendyol API ────────────────────────────────────────────────\n    const supplierId = $env['TRENDYOL_SUPPLIER_ID'] || '';\n    const apiKey    = $env['TRENDYOL_API_KEY']    || '';\n    const apiSecret = $env['TRENDYOL_API_SECRET'] || '';\n    const authHeader = 'Basic ' + Buffer.from(`${apiKey}:${apiSecret}`).toString('base64');\n\n    // Trendyol returnează tot arborele de categorii\n    const data = await $helpers.httpRequest({\n      method: 'GET',\n      url: 'https://api.trendyol.com/sapigw/product/categories',\n      headers: {\n        'Authorization': authHeader,\n        'User-Agent': `${supplierId} - SelfIntegration`,\n        'Accept': 'application/json'\n      },\n      json: true\n    });\n\n    // Aplatizăm arborele recursiv\n    function flattenCategories(nodes, result = []) {\n      for (const node of (nodes || [])) {\n        result.push({ id: String(node.id), name: node.name });\n        if (node.subCategories && node.subCategories.length) {\n          flattenCategories(node.subCategories, result);\n        }\n      }\n      return result;\n    }\n\n    const allCategories = flattenCategories(data.categories || []);\n\n    const filtered = searchTerm\n      ? allCategories.filter(c =>\n          (c.name || '').toLowerCase().includes(searchTerm)\n        )\n      : allCategories;\n\n    categories = filtered.slice(0, MAX_RESULTS);\n\n  } else if (platform === 'temu') {\n    // ── Temu — placeholder ──────────────────────────────────────────\n    // Adaptează după integrarea ta Temu.\n    const temuCategories = [\n      { id: 'temu-1', name: 'Electronice' },\n      { id: 'temu-2', name: 'Îmbrăcăminte & Modă' },\n      { id: 'temu-3', name: 'Casă & Grădină' },\n      { id: 'temu-4', name: 'Sport & Outdoor' },\n      { id: 'temu-5', name: 'Jucării & Copii' },\n      { id: 'temu-6', name: 'Frumusețe & Îngrijire' },\n      { id: 'temu-7', name: 'Auto & Moto' },\n      { id: 'temu-8', name: 'Birotică & Papetărie' },\n      { id: 'temu-9', name: 'Animale de Companie' },\n      { id: 'temu-10', name: 'Alimentar & Gourmet' }\n    ];\n\n    const filtered = searchTerm\n      ? temuCategories.filter(c =>\n          c.name.toLowerCase().includes(searchTerm)\n        )\n      : temuCategories;\n\n    categories = filtered.slice(0, MAX_RESULTS);\n  }\n\n} catch (err) {\n  console.error(`[v2-all-categories] Eroare pentru ${platform}:`, err.message);\n  return [{ json: { categories: [], error: err.message } }];\n}\n\nreturn [{ json: { categories } }];\n"
+        "jsCode": "// Mapează platforma din frontend la marketplace-ul canonic din catalogs\nconst body = $input.first().json.body || {};\nconst platform = (body.platform || 'emag').toLowerCase();\nconst platformMap = {\n  'emag': 'emag_ro',\n  'trendyol': 'trendyol_ro',\n  'temu': 'temu_ro'\n};\nconst marketplace = platformMap[platform] || (platform + '_ro');\nconst searchTerm = (body.search || '').trim();\n\nreturn [{ json: { marketplace, searchTerm } }];\n"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [560, 460],
-      "id": "code-all-cats",
-      "name": "Search All Categories"
+      "position": [460, 460],
+      "id": "code-prepare-cats",
+      "name": "Prepare Query"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT category_id, category_name FROM catalogs.categories WHERE marketplace = $1 AND is_active = true AND category_name ILIKE '%' || $2 || '%' ORDER BY category_name LIMIT 50;",
+        "options": {
+          "queryReplacement": "={{ $json.marketplace }},={{ $json.searchTerm }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [680, 460],
+      "id": "pg-all-cats",
+      "name": "Query Categories",
+      "credentials": {
+        "postgres": {
+          "id": "qB83OygmYC4DBr5q",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Formatează rezultatele Postgres în structura așteptată de frontend\nconst rows = $input.all().map(item => item.json);\n\n// Dacă Postgres a returnat un singur obiect gol (no results), returnăm array gol\nif (rows.length === 1 && !rows[0].category_id) {\n  return [{ json: { categories: [] } }];\n}\n\nconst categories = rows.map(row => ({\n  id: String(row.category_id),\n  name: row.category_name\n}));\n\nreturn [{ json: { categories } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 460],
+      "id": "code-format-cats",
+      "name": "Format Response"
     }
   ],
   "connections": {
@@ -33,7 +63,29 @@
       "main": [
         [
           {
-            "node": "Search All Categories",
+            "node": "Prepare Query",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Query": {
+      "main": [
+        [
+          {
+            "node": "Query Categories",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Query Categories": {
+      "main": [
+        [
+          {
+            "node": "Format Response",
             "type": "main",
             "index": 0
           }

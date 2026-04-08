@@ -598,12 +598,16 @@ async function fetchAndRenderAttributes(platform, categoryId) {
 
 function renderAttributeRow(attr, platform) {
     const attrId = String(attr.id ?? attr.name ?? '').replace(/[^a-zA-Z0-9_-]/g, '_');
-    return `<div class="attr-row flex items-center gap-1" data-attr-id="${attrId}" data-platform="${platform}">
+    const isRequired = attr.required === true;
+    const requiredMark = isRequired ? '<span class="text-red-500 text-xs ml-0.5">*</span>' : '';
+    const bgClass = isRequired ? 'bg-amber-50 border border-amber-200' : 'bg-gray-50';
+    const placeholder = isRequired ? 'Obligatoriu...' : 'Valoare...';
+    return `<div class="attr-row flex items-center gap-1" data-attr-id="${attrId}" data-platform="${platform}" data-required="${isRequired}">
         <div class="connector-dot bg-gray-300" data-side="left" data-platform="${platform}" data-attr-id="${attrId}"></div>
-        <div class="flex-1 flex items-center gap-1.5 bg-gray-50 rounded px-2 py-1 min-w-0">
-            <span class="text-xs text-gray-600 font-medium flex-shrink-0 truncate" style="width:45%" title="${attr.name}">${attr.name}</span>
-            <input type="text" class="attr-value-input flex-1 text-xs bg-transparent border-0 border-b border-gray-300 focus:border-blue-400 focus:outline-none px-0 min-w-0"
-                   data-attr-id="${attrId}" data-platform="${platform}" placeholder="Valoare..." value="${attr.value || ''}">
+        <div class="flex-1 flex items-center gap-1.5 ${bgClass} rounded px-2 py-1 min-w-0">
+            <span class="text-xs ${isRequired ? 'text-amber-800' : 'text-gray-600'} font-medium flex-shrink-0 truncate" style="width:45%" title="${attr.name}${isRequired ? ' (obligatoriu)' : ''}">${attr.name}${requiredMark}</span>
+            <input type="text" class="attr-value-input flex-1 text-xs bg-transparent border-0 border-b ${isRequired ? 'border-amber-300 focus:border-amber-500' : 'border-gray-300 focus:border-blue-400'} focus:outline-none px-0 min-w-0"
+                   data-attr-id="${attrId}" data-platform="${platform}" placeholder="${placeholder}" value="${attr.value || ''}">
         </div>
         <div class="connector-dot bg-gray-300" data-side="right" data-platform="${platform}" data-attr-id="${attrId}"></div>
     </div>`;
