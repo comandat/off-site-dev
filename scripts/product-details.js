@@ -8,9 +8,11 @@ import {
     DESCRIPTION_GENERATION_WEBHOOK_URL,
     CATEGORY_ATTRIBUTES_WEBHOOK_URL,
     AI_FILL_ATTRIBUTES_WEBHOOK_URL,
+    AI_MAP_VALUE_WEBHOOK_URL,
     SAVE_PRODUCT_ATTRIBUTES_URL,
     GET_PRODUCT_ATTRIBUTES_URL,
-    ALL_CATEGORIES_URL
+    ALL_CATEGORIES_URL,
+    CATEGORY_MAPPINGS_WEBHOOK_URL
 } from './constants.js';
 import { renderImageGallery, initializeSortable, templates } from './templates.js';
 import { saveProductDetails } from './data.js';
@@ -536,10 +538,25 @@ const mappingState = {
     connections: [],
     dragging: null,
     categories: { emag: null, trendyol: null, temu: null },
+    // savedValues[platform][categoryId] = { attrId: value, ... }
+    // Indexat pe categoryId ca să nu se piardă munca la switch accidental de categorie.
     savedValues: { emag: {}, trendyol: {}, temu: {} },
+    // savedConnections[comboKey] = [{fromPlatform, fromAttrId, ...}, ...]
+    // comboKey = 'emag:X|trendyol:Y|temu:Z' — conexiunile depind de categoriile TUTUROR platformelor.
+    savedConnections: {},
     savedMappings: [],
-    searchTimers: {}
+    searchTimers: {},
+    // Când e true, schimbarea categoriei eMAG NU declanșează lookup automat
+    // de mapări pe Trendyol/Temu. Folosit la restore din DB ca să respectăm
+    // ce a salvat userul anterior.
+    _suppressEmagMappingLookup: false
 };
+
+// Construiește cheia de combo din categoriile active pe toate platformele.
+function buildConnectionsKey() {
+    const c = mappingState.categories;
+    return `emag:${c.emag || ''}|trendyol:${c.trendyol || ''}|temu:${c.temu || ''}`;
+}
 
 // Cache pentru valorile predefinite ale atributelor: key = `${platform}-${attrId}`
 const attrValuesCache = new Map();
@@ -570,18 +587,83 @@ export function populateCategorySelector() {
 
 export async function handleCategoryChange(platform, categoryId) {
     if (!categoryId) return;
-    // Salvează valorile curente în memorie înainte de switch
-    if (mappingState.categories[platform]) {
-        mappingState.savedValues[platform] = collectAttributeValuesForPlatform(platform);
+
+    const prevCategoryId = mappingState.categories[platform];
+
+    // 1. Salvează valorile actuale în memorie, indexate pe (platform, categoryId)
+    if (prevCategoryId) {
+        if (!mappingState.savedValues[platform]) mappingState.savedValues[platform] = {};
+        mappingState.savedValues[platform][prevCategoryId] = collectAttributeValuesForPlatform(platform);
     }
+
+    // 2. Salvează conexiunile curente sub cheia combo actuală (înainte de a schimba categoria)
+    const prevKey = buildConnectionsKey();
+    mappingState.savedConnections[prevKey] = mappingState.connections.map(({ path: _, ...c }) => c);
+
+    // 3. Actualizează categoria și șterge liniile de pe ecran
     mappingState.categories[platform] = categoryId;
     clearAllConnections();
+
     const el = document.getElementById(`${platform}-attributes`);
     if (el) el.innerHTML = '<p class="text-xs text-gray-400 italic">Se încarcă...</p>';
     await fetchAndRenderAttributes(platform, categoryId);
-    restoreAttributeValues(platform, mappingState.savedValues[platform] || {});
-    restoreConnections();
+
+    // 4. Restaurează valorile pentru noua categorie (dacă au mai fost pe ea)
+    const restoredValues = mappingState.savedValues[platform]?.[categoryId] || {};
+    restoreAttributeValues(platform, restoredValues);
+
+    // 5. Restaurează conexiunile pentru noul combo de categorii (dacă există în memorie)
+    //    Dacă nu, fallback pe savedMappings din DB (primul load).
+    const newKey = buildConnectionsKey();
+    const memConns = mappingState.savedConnections[newKey];
+    if (memConns && memConns.length) {
+        restoreConnectionsFromList(memConns);
+    } else {
+        restoreConnections();
+    }
     initDragConnect();
+
+    // 6. La schimbarea activă a categoriei eMAG, caută mapări pe Trendyol/Temu
+    //    și pre-populează dropdown-urile + fetch caracteristici pentru cea mai bună.
+    if (platform === 'emag' && !mappingState._suppressEmagMappingLookup) {
+        await applyCategoryMappings(categoryId);
+    }
+}
+
+async function applyCategoryMappings(emagCategoryId) {
+    try {
+        const res = await fetch(CATEGORY_MAPPINGS_WEBHOOK_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ sourcePlatform: 'emag', sourceCategoryId: String(emagCategoryId) })
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+        const mappings = data?.mappings || {};
+        for (const targetPlatform of ['trendyol', 'temu']) {
+            const list = Array.isArray(mappings[targetPlatform]) ? mappings[targetPlatform] : [];
+            if (!list.length) continue;
+            populateMappedCategoryDropdown(targetPlatform, list);
+            const best = list.find(m => m.isBest) || list[0];
+            if (best && best.categoryId) {
+                await handleCategoryChange(targetPlatform, String(best.categoryId));
+            }
+        }
+    } catch (err) {
+        console.error('Eroare lookup mapări categorii:', err);
+    }
+}
+
+function populateMappedCategoryDropdown(platform, list) {
+    const selector = document.getElementById(`category-selector-${platform}`);
+    if (!selector) return;
+    const emptyOpt = '<option value="">Selectați o categorie...</option>';
+    const opts = list.map(m => {
+        const badge = m.confidence === 'manual' ? ' ✓' : '';
+        const name = (m.categoryName || ('Categorie ' + m.categoryId)).replace(/"/g, '&quot;');
+        return `<option value="${m.categoryId}">${name}${badge}</option>`;
+    }).join('');
+    selector.innerHTML = emptyOpt + opts;
 }
 
 async function fetchAndRenderAttributes(platform, categoryId) {
@@ -653,14 +735,24 @@ function renderAttributeRow(attr, platform) {
                data-attr-id="${attrId}" data-platform="${platform}" placeholder="${placeholder}" value="${attr.value || ''}">`;
     }
 
+    // eMAG (coloana din stânga) nu are nimic la stânga → fără dot stâng
+    // Temu (coloana din dreapta) nu are nimic la dreapta → fără dot drept
+    // Trendyol e bridge → ambele dot-uri
+    const leftDot = platform === 'emag'
+        ? '<div class="w-3 flex-shrink-0"></div>'
+        : `<div class="connector-dot bg-gray-300" data-side="left" data-platform="${platform}" data-attr-id="${attrId}"></div>`;
+    const rightDot = platform === 'temu'
+        ? '<div class="w-3 flex-shrink-0"></div>'
+        : `<div class="connector-dot bg-gray-300" data-side="right" data-platform="${platform}" data-attr-id="${attrId}"></div>`;
+
     return `<div class="attr-row flex items-center gap-1" data-attr-id="${attrId}" data-platform="${platform}" data-required="${isRequired}">
-        <div class="connector-dot bg-gray-300" data-side="left" data-platform="${platform}" data-attr-id="${attrId}"></div>
+        ${leftDot}
         <div class="flex-1 flex items-center gap-1.5 ${bgClass} rounded px-2 py-1 min-w-0">
             <span class="text-xs ${labelClass} font-medium flex-shrink-0 truncate" style="width:40%" title="${attr.name}${isRequired ? ' (obligatoriu)' : ''}">${attr.name}${requiredMark}</span>
             ${customBadge}
             ${inputHtml}
         </div>
-        <div class="connector-dot bg-gray-300" data-side="right" data-platform="${platform}" data-attr-id="${attrId}"></div>
+        ${rightDot}
     </div>`;
 }
 
@@ -806,6 +898,9 @@ function initDragConnect() {
                 targetDot.style.backgroundColor = '#16a34a';
                 tempPath.addEventListener('click', () => removeConnection(conn));
                 saveConnections();
+                // AI map-value: dacă un capăt al conexiunii e completat și celălalt nu,
+                // cere AI-ului să propună o valoare pentru capătul gol pe baza sursei.
+                maybeTriggerAiMapValue(conn);
             } else {
                 tempPath.remove();
             }
@@ -829,6 +924,83 @@ function removeConnection(conn) {
     saveConnections();
 }
 
+// Placeholder pentru a evita ReferenceError — persistarea se face prin butonul de save.
+function saveConnections() {}
+
+function getAttrInput(platform, attrId) {
+    return document.querySelector(
+        `.attr-value-input[data-platform="${platform}"][data-attr-id="${attrId}"]`
+    );
+}
+
+function getAttrNameFromRow(platform, attrId) {
+    const row = document.querySelector(
+        `.attr-row[data-platform="${platform}"][data-attr-id="${attrId}"]`
+    );
+    const label = row?.querySelector('span[title]');
+    // Folosește title (fără " (obligatoriu)") când există, fallback pe textContent
+    const raw = (label?.getAttribute('title') || label?.textContent || '').trim();
+    return raw.replace(/\s*\(obligatoriu\)\s*$/i, '').trim();
+}
+
+function maybeTriggerAiMapValue(conn) {
+    const fromInput = getAttrInput(conn.fromPlatform, conn.fromAttrId);
+    const toInput = getAttrInput(conn.toPlatform, conn.toAttrId);
+    const fromVal = fromInput?.value?.trim() || '';
+    const toVal = toInput?.value?.trim() || '';
+
+    // Determină care capăt e sursa (cel completat) și care e ținta (cel gol)
+    let sourcePlatform, sourceAttrId, sourceValue, targetPlatform, targetAttrId, targetInput;
+    if (fromVal && !toVal) {
+        sourcePlatform = conn.fromPlatform;
+        sourceAttrId = conn.fromAttrId;
+        sourceValue = fromVal;
+        targetPlatform = conn.toPlatform;
+        targetAttrId = conn.toAttrId;
+        targetInput = toInput;
+    } else if (toVal && !fromVal) {
+        sourcePlatform = conn.toPlatform;
+        sourceAttrId = conn.toAttrId;
+        sourceValue = toVal;
+        targetPlatform = conn.fromPlatform;
+        targetAttrId = conn.fromAttrId;
+        targetInput = fromInput;
+    } else {
+        // Ambele goale sau ambele completate — nu facem nimic
+        return;
+    }
+
+    const targetCategoryId = mappingState.categories[targetPlatform];
+    if (!targetCategoryId || !targetInput) return;
+
+    const sourceAttrName = getAttrNameFromRow(sourcePlatform, sourceAttrId);
+    const origPlaceholder = targetInput.placeholder || '';
+    targetInput.placeholder = '🤖 AI map...';
+
+    fetch(AI_MAP_VALUE_WEBHOOK_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            sourcePlatform,
+            sourceAttrName,
+            sourceValue,
+            targetPlatform,
+            targetCategoryId: String(targetCategoryId),
+            targetAttrId: String(targetAttrId),
+            productTitle: state.editedProductData?.title || ''
+        })
+    })
+    .then(res => res.ok ? res.json() : null)
+    .then(data => {
+        if (data && typeof data.value === 'string' && data.value) {
+            targetInput.value = data.value;
+            targetInput.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+    })
+    .catch(err => console.error('AI map-value eșuat:', err))
+    .finally(() => { targetInput.placeholder = origPlaceholder; });
+}
+
 function clearAllConnections() {
     const svg = document.getElementById('connections-svg');
     if (svg) svg.innerHTML = '';
@@ -840,13 +1012,18 @@ function clearAllConnections() {
     mappingState.connections = [];
 }
 
+// Restaurează conexiunile din DB (savedMappings) — folosit la primul load al produsului.
 function restoreConnections() {
-    const toRestore = mappingState.savedMappings.length
-        ? mappingState.savedMappings
-        : [];
+    restoreConnectionsFromList(mappingState.savedMappings);
+}
+
+// Restaurează o listă de conexiuni pe ecran (din memorie sau DB).
+// Conexiunile al căror dot nu există în DOM (categorie diferită) sunt ignorate silențios.
+function restoreConnectionsFromList(list) {
+    if (!list || !list.length) return;
     const svg = document.getElementById('connections-svg');
-    if (!svg || !toRestore.length) return;
-    toRestore.forEach(c => {
+    if (!svg) return;
+    list.forEach(c => {
         const fromDot = document.querySelector(`.connector-dot[data-platform="${c.fromPlatform}"][data-attr-id="${c.fromAttrId}"][data-side="${c.fromSide}"]`);
         const toDot = document.querySelector(`.connector-dot[data-platform="${c.toPlatform}"][data-attr-id="${c.toAttrId}"][data-side="${c.toSide}"]`);
         if (!fromDot || !toDot) return;
@@ -897,10 +1074,41 @@ async function saveAttributesToDB(asin) {
     try {
         const listingData = collectAllAttributeValues();
         const mappings = mappingState.connections.map(({ path: _, ...c }) => c);
+        // Chain inference: dacă există eMAG[X]↔Trendyol[Y] ȘI Trendyol[Y]↔Temu[Z]
+        // pentru același attrId pe Trendyol, adăugăm o mapare virtuală eMAG[X]↔Temu[Z]
+        // marcată `via: 'trendyol'`. Backend-ul o va folosi la învățarea în
+        // mappings.characteristics ca să știm că toate trei reprezintă aceeași caracteristică.
+        const chainMappings = [];
+        for (const a of mappings) {
+            const aIsEmagTr = (a.fromPlatform === 'emag' && a.toPlatform === 'trendyol');
+            const aIsTrEmag = (a.fromPlatform === 'trendyol' && a.toPlatform === 'emag');
+            if (!aIsEmagTr && !aIsTrEmag) continue;
+            const emagAttrId = aIsEmagTr ? a.fromAttrId : a.toAttrId;
+            const trAttrId = aIsEmagTr ? a.toAttrId : a.fromAttrId;
+            for (const b of mappings) {
+                if (a === b) continue;
+                const bIsTrTemu = (b.fromPlatform === 'trendyol' && b.toPlatform === 'temu');
+                const bIsTemuTr = (b.fromPlatform === 'temu' && b.toPlatform === 'trendyol');
+                if (!bIsTrTemu && !bIsTemuTr) continue;
+                const bTrAttrId = bIsTrTemu ? b.fromAttrId : b.toAttrId;
+                if (bTrAttrId !== trAttrId) continue;
+                const temuAttrId = bIsTrTemu ? b.toAttrId : b.fromAttrId;
+                chainMappings.push({
+                    fromPlatform: 'emag',
+                    fromAttrId: emagAttrId,
+                    fromSide: 'right',
+                    toPlatform: 'temu',
+                    toAttrId: temuAttrId,
+                    toSide: 'left',
+                    via: 'trendyol'
+                });
+            }
+        }
+        const payload = { asin, listingData, mappings, chainMappings };
         await fetch(SAVE_PRODUCT_ATTRIBUTES_URL, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ asin, listingData, mappings })
+            body: JSON.stringify(payload)
         });
     } catch (err) {
         console.error('Eroare la salvarea atributelor:', err);
@@ -921,29 +1129,44 @@ export async function loadProductAttributesFromDB(asin) {
         const mappings = data?.mappings || [];
         if (!Object.keys(listingData).length && !mappings.length) return;
         mappingState.savedMappings = mappings;
-        // Restaurare categorii și valori per platformă
-        const platforms = ['emag', 'trendyol', 'temu'];
-        for (const platform of platforms) {
-            const platformData = listingData[platform];
-            if (!platformData?.categoryId) continue;
-            mappingState.savedValues[platform] = platformData.attributes || {};
-            mappingState.categories[platform] = platformData.categoryId;
-            const selector = document.getElementById(`category-selector-${platform}`);
-            if (selector) {
-                // Adaugă opțiunea dacă nu există deja
-                if (!selector.querySelector(`option[value="${platformData.categoryId}"]`)) {
-                    const opt = document.createElement('option');
-                    opt.value = platformData.categoryId;
-                    opt.textContent = `Categorie ${platformData.categoryId}`;
-                    selector.appendChild(opt);
+        // Suprimă lookup-ul automat de mapări cât timp restaurăm datele salvate —
+        // userul a confirmat deja categoriile pentru acest produs, nu le rescriem.
+        mappingState._suppressEmagMappingLookup = true;
+        try {
+            // Restaurare categorii și valori per platformă
+            const platforms = ['emag', 'trendyol', 'temu'];
+            for (const platform of platforms) {
+                const platformData = listingData[platform];
+                if (!platformData?.categoryId) continue;
+                // Salvăm valorile din DB indexate pe (platform, categoryId)
+                if (!mappingState.savedValues[platform]) mappingState.savedValues[platform] = {};
+                mappingState.savedValues[platform][platformData.categoryId] = platformData.attributes || {};
+                mappingState.categories[platform] = platformData.categoryId;
+                const selector = document.getElementById(`category-selector-${platform}`);
+                if (selector) {
+                    // Adaugă opțiunea dacă nu există deja
+                    if (!selector.querySelector(`option[value="${platformData.categoryId}"]`)) {
+                        const opt = document.createElement('option');
+                        opt.value = platformData.categoryId;
+                        opt.textContent = `Categorie ${platformData.categoryId}`;
+                        selector.appendChild(opt);
+                    }
+                    selector.value = platformData.categoryId;
                 }
-                selector.value = platformData.categoryId;
+                await fetchAndRenderAttributes(platform, platformData.categoryId);
+                restoreAttributeValues(platform, platformData.attributes || {});
             }
-            await fetchAndRenderAttributes(platform, platformData.categoryId);
-            restoreAttributeValues(platform, platformData.attributes || {});
+            restoreConnections();
+            initDragConnect();
+            // Salvăm conexiunile din DB și în memoria locală sub cheia combo curentă,
+            // astfel că un switch accidental și revenire le va restaura din memorie.
+            if (mappings.length) {
+                mappingState.savedConnections[buildConnectionsKey()] =
+                    mappings.map(({ path: _, ...c }) => c);
+            }
+        } finally {
+            mappingState._suppressEmagMappingLookup = false;
         }
-        restoreConnections();
-        initDragConnect();
     } catch (err) {
         console.error('Eroare la încărcarea atributelor:', err);
     }
@@ -1022,28 +1245,56 @@ export async function handleAiFillAttributes(button) {
     const orig = button.innerHTML;
     button.disabled = true;
     button.innerHTML = `<div class="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>`;
-    const asin = document.getElementById('product-asin')?.value;
-    const categoryId = mappingState.currentCategoryId;
+
+    const asin = document.getElementById('product-asin')?.value || '';
     const title = state.editedProductData?.title || '';
     const description = state.editedProductData?.description || '';
-    const images = state.editedProductData?.images || [];
+    const images = (state.editedProductData?.images || []).slice(0, 3);
+
+    const platforms = ['emag', 'trendyol', 'temu'].filter(p => mappingState.categories[p]);
+    if (!platforms.length) {
+        alert('Selectează mai întâi o categorie pe cel puțin o platformă.');
+        button.disabled = false;
+        button.innerHTML = orig;
+        return;
+    }
+
+    let anySuccess = false;
     try {
-        const response = await fetch(AI_FILL_ATTRIBUTES_WEBHOOK_URL, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ asin, categoryId, title, description, images })
-        });
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        const data = await response.json();
-        const filled = data.attributes || {};
-        Object.entries(filled).forEach(([platform, attrs]) => {
-            Object.entries(attrs).forEach(([attrId, value]) => {
-                const input = document.querySelector(`.attr-value-input[data-platform="${platform}"][data-attr-id="${attrId}"]`);
-                if (input) input.value = value;
-            });
-        });
-    } catch {
-        alert('Funcția de completare AI va fi disponibilă după configurarea webhook-ului n8n.');
+        for (const platform of platforms) {
+            const categoryId = mappingState.categories[platform];
+            try {
+                const res = await fetch(AI_FILL_ATTRIBUTES_WEBHOOK_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ asin, platform, categoryId, title, description, images })
+                });
+                if (!res.ok) continue;
+                const data = await res.json();
+                const filled = data?.attributes?.[platform] || {};
+                let filledCount = 0;
+                Object.entries(filled).forEach(([attrId, value]) => {
+                    const safeId = String(attrId).replace(/[^a-zA-Z0-9_-]/g, '_');
+                    const input = document.querySelector(
+                        `.attr-value-input[data-platform="${platform}"][data-attr-id="${safeId}"]`
+                    );
+                    if (input) {
+                        input.value = value;
+                        input.dispatchEvent(new Event('change', { bubbles: true }));
+                        filledCount++;
+                    }
+                });
+                if (filledCount > 0) anySuccess = true;
+            } catch (innerErr) {
+                console.error(`Eroare AI fill pentru ${platform}:`, innerErr);
+            }
+        }
+        if (!anySuccess) {
+            alert('Nu s-a completat nicio caracteristică. Verifică webhook-ul n8n (v2-ai-fill-attributes) și GEMINI_API_KEY.');
+        }
+    } catch (err) {
+        console.error('Eroare la completare AI:', err);
+        alert('Eroare la completarea AI. Verifică consola.');
     } finally {
         button.disabled = false;
         button.innerHTML = orig;
