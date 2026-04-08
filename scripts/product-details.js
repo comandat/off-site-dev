@@ -575,9 +575,10 @@ export function populateCategorySelector() {
         selector.innerHTML = '<option value="">Nu există categorii disponibile</option>';
         return;
     }
-    selector.innerHTML = categories.map((cat, i) =>
-        `<option value="${cat.id}"${i === 0 ? ' selected' : ''}>${cat.name}</option>`
-    ).join('');
+    selector.innerHTML = categories.map((cat, i) => {
+        const safeName = String(cat.name || '').replace(/"/g, '&quot;');
+        return `<option value="${cat.id}" data-name="${safeName}"${i === 0 ? ' selected' : ''}>${safeName}</option>`;
+    }).join('');
     // Triggerează încărcarea atributelor pentru prima categorie din eMAG
     // dar numai dacă nu există deja date din DB (loadProductAttributesFromDB face asta)
     if (!mappingState.categories.emag) {
@@ -683,9 +684,24 @@ function populateMappedCategoryDropdown(platform, list) {
 async function fetchAndRenderAttributes(platform, categoryId) {
     const container = document.getElementById(`${platform}-attributes`);
     if (!container) return null;
-    // Trimitem și numele categoriei ca fallback pentru căutarea după nume în DB
+    // Trimitem și numele categoriei (ENGLEZĂ, oficial din catalogs) ca fallback
+    // pentru căutarea după nume în DB. Dacă option-ul are data-name (cazul search bilingv),
+    // îl folosim pe acela — textContent poate fi "RO (EN)" sau alte variante afișate.
     const selector = document.getElementById(`category-selector-${platform}`);
-    const categoryName = (selector?.selectedOptions?.[0]?.text?.trim() || '').replace(/\s*\(\d+\)\s*$/, '');
+    const selectedOpt = selector?.selectedOptions?.[0];
+    let categoryName = selectedOpt?.dataset?.name || selectedOpt?.text?.trim() || '';
+    // Cleanup compatibilitate:
+    //   - șterge sufix ` (123)` (vechi, număr de produse)
+    //   - șterge ` ✓` (badge confidence=manual)
+    //   - extrage partea din paranteză dacă formatul e "Nume RO (Nume EN)" → doar "Nume EN"
+    categoryName = categoryName
+        .replace(/\s*✓\s*$/, '')
+        .replace(/\s*\(\d+\)\s*$/, '');
+    // Dacă textContent e "Nume RO (Nume EN)" și nu avem data-name, extragem EN din paranteze
+    if (!selectedOpt?.dataset?.name) {
+        const parenMatch = categoryName.match(/^(.+?)\s*\(([^()]+)\)\s*$/);
+        if (parenMatch) categoryName = parenMatch[2].trim();
+    }
     try {
         const response = await fetch(CATEGORY_ATTRIBUTES_WEBHOOK_URL, {
             method: 'POST',
@@ -1223,6 +1239,24 @@ export function handleCategorySearch(input) {
     }, 300);
 }
 
+// Helper HTML escape pentru atribute și text
+function escapeHtmlAttr(s) {
+    return String(s ?? '').replace(/[&<>"']/g, c =>
+        ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])
+    );
+}
+
+// Format display pentru o categorie: "Nume RO (Nume EN)" sau doar EN dacă nu e tradus.
+// Folosit atât în rezultate de search cât și ca textContent al <option>.
+function formatCategoryLabel(cat) {
+    const en = cat.name || '';
+    const ro = (cat.nameRo || '').trim();
+    if (ro && ro.toLowerCase() !== en.toLowerCase()) {
+        return `${ro} (${en})`;
+    }
+    return en;
+}
+
 function renderCategoryResults(platform, categories) {
     const container = document.getElementById(`cat-results-${platform}`);
     if (!container) return;
@@ -1230,25 +1264,37 @@ function renderCategoryResults(platform, categories) {
         container.innerHTML = '<p class="px-2 py-1 text-gray-400 italic">Niciun rezultat</p>';
         return;
     }
-    container.innerHTML = categories.map(cat =>
-        `<div class="px-2 py-1.5 hover:bg-blue-50 cursor-pointer border-b border-gray-100 last:border-0 cat-result-item"
-              data-platform="${platform}" data-id="${cat.id}" data-name="${cat.name}">
-            ${cat.name}
-         </div>`
-    ).join('');
+    container.innerHTML = categories.map(cat => {
+        const en = escapeHtmlAttr(cat.name || '');
+        const ro = escapeHtmlAttr(cat.nameRo || '');
+        const id = escapeHtmlAttr(cat.id);
+        // Display: RO îngroșat + EN gri în paranteză, sau doar EN dacă nu există traducere
+        const display = (cat.nameRo && cat.nameRo.trim() && cat.nameRo.trim().toLowerCase() !== (cat.name || '').toLowerCase())
+            ? `<span class="font-medium text-gray-800">${ro}</span> <span class="text-gray-400">(${en})</span>`
+            : `<span>${en}</span>`;
+        return `<div class="px-2 py-1.5 hover:bg-blue-50 cursor-pointer border-b border-gray-100 last:border-0 cat-result-item"
+              data-platform="${platform}" data-id="${id}" data-name="${en}" data-name-ro="${ro}">
+            ${display}
+         </div>`;
+    }).join('');
     container.querySelectorAll('.cat-result-item').forEach(item => {
         item.addEventListener('click', () => {
             const catPlatform = item.dataset.platform;
             const catId = item.dataset.id;
             const catName = item.dataset.name;
+            const catNameRo = item.dataset.nameRo || '';
+            // Format option text identic cu rezultatele: "Nume RO (Nume EN)" sau doar EN
+            const optionLabel = formatCategoryLabel({ name: catName, nameRo: catNameRo });
             const selector = document.getElementById(`category-selector-${catPlatform}`);
             if (selector) {
-                if (!selector.querySelector(`option[value="${catId}"]`)) {
-                    const opt = document.createElement('option');
-                    opt.value = catId;
-                    opt.textContent = catName;
-                    selector.appendChild(opt);
+                let existing = selector.querySelector(`option[value="${catId}"]`);
+                if (!existing) {
+                    existing = document.createElement('option');
+                    existing.value = catId;
+                    selector.appendChild(existing);
                 }
+                existing.textContent = optionLabel;
+                existing.dataset.nameRo = catNameRo;
                 selector.value = catId;
             }
             // Ascunde search box + debifează checkbox

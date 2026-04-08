@@ -30,7 +30,7 @@
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "SELECT category_id, category_name FROM catalogs.categories WHERE marketplace = $1 AND is_active = true AND category_name ILIKE '%' || $2 || '%' ORDER BY category_name LIMIT 50;",
+        "query": "SELECT category_id, category_name, name_ro FROM catalogs.categories WHERE marketplace = $1 AND is_active = true AND ( $2 = '' OR category_name ILIKE '%' || $2 || '%' OR COALESCE(name_ro, '') ILIKE '%' || $2 || '%' ) ORDER BY CASE WHEN category_name ILIKE $2 || '%' THEN 0 WHEN COALESCE(name_ro, '') ILIKE $2 || '%' THEN 1 ELSE 2 END, COALESCE(name_ro, category_name) LIMIT 50;",
         "options": {
           "queryReplacement": "={{ $json.marketplace }},={{ $json.searchTerm }}"
         }
@@ -49,7 +49,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Formatează rezultatele Postgres în structura așteptată de frontend\nconst rows = $input.all().map(item => item.json);\n\n// Dacă Postgres a returnat un singur obiect gol (no results), returnăm array gol\nif (rows.length === 1 && !rows[0].category_id) {\n  return [{ json: { categories: [] } }];\n}\n\nconst categories = rows.map(row => ({\n  id: String(row.category_id),\n  name: row.category_name\n}));\n\nreturn [{ json: { categories } }];\n"
+        "jsCode": "// Formatează rezultatele Postgres în structura așteptată de frontend.\n// Include și name_ro (traducere română) pentru afișare bilingvă + search bilingv.\nconst rows = $input.all().map(item => item.json);\n\n// Dacă Postgres a returnat un singur obiect gol (no results), returnăm array gol\nif (rows.length === 1 && !rows[0].category_id) {\n  return [{ json: { categories: [] } }];\n}\n\nconst categories = rows.map(row => ({\n  id: String(row.category_id),\n  name: row.category_name,\n  nameRo: row.name_ro || null\n}));\n\nreturn [{ json: { categories } }];\n"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
