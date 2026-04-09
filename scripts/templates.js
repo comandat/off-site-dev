@@ -1,5 +1,61 @@
 import { state } from './state.js';
-import { languages, languageNameToCodeMap } from './constants.js';
+import { languages, languageNameToCodeMap, MARKETPLACES } from './constants.js';
+
+// Renderer pentru o coloană marketplace în grid-ul de mapping categorii/caracteristici.
+// Uses inline styles pentru culori (Tailwind JIT nu poate construi clase dinamice).
+function renderMarketplaceColumn(mp, idx) {
+    const isFirst = idx === 0;
+    const isLast  = idx === MARKETPLACES.length - 1;
+    const padClass = isFirst ? 'pr-4 pl-3' : (isLast ? 'pl-4 pr-3' : 'px-4');
+    const borderClass = isLast ? '' : 'border-r border-gray-200';
+    const placeholderLabel = mp.id === 'emag' ? 'Se încarcă...' : 'Selectați o categorie...';
+    return `<div class="${padClass} ${borderClass} marketplace-column" data-platform="${mp.id}">
+        <div class="flex items-center gap-2 mb-2 pb-2 border-b border-gray-100">
+            <span class="material-icons marketplace-drag-handle text-gray-400 cursor-grab select-none" title="Trage pentru a reordona coloana" style="font-size:16px;">drag_indicator</span>
+            <div class="w-2.5 h-2.5 rounded-full flex-shrink-0" style="background:${mp.colorHex};"></div>
+            <span class="font-semibold text-sm" style="color:${mp.colorHex};">${mp.label}</span>
+        </div>
+        <div class="mb-2">
+            <div class="flex items-center gap-1.5">
+                <select id="category-selector-${mp.id}" data-platform="${mp.id}"
+                        class="flex-1 border border-gray-200 rounded px-2 py-1 text-xs bg-white focus:outline-none min-w-0">
+                    <option value="">${placeholderLabel}</option>
+                </select>
+                <label class="flex items-center gap-1 cursor-pointer flex-shrink-0">
+                    <input type="checkbox" id="show-all-${mp.id}" data-platform="${mp.id}"
+                           class="w-3 h-3 rounded cursor-pointer">
+                    <span class="text-xs text-gray-500 whitespace-nowrap">Toate</span>
+                </label>
+            </div>
+            <div id="all-categories-${mp.id}" class="hidden mt-1">
+                <input type="text" id="cat-search-${mp.id}" data-platform="${mp.id}"
+                       placeholder="Caută categorie ${mp.label}..."
+                       class="w-full border border-gray-200 rounded px-2 py-1 text-xs focus:outline-none">
+                <div id="cat-results-${mp.id}"
+                     class="mt-1 border border-gray-200 rounded max-h-40 overflow-y-auto bg-white shadow-sm text-xs"></div>
+            </div>
+        </div>
+        <div id="${mp.id}-attributes" class="space-y-1.5">
+            <p class="text-xs text-gray-400 italic">Selectați o categorie</p>
+        </div>
+    </div>`;
+}
+
+// Legend strip afișată deasupra grid-ului de mapping — explică iconițele și culorile.
+function renderMappingLegend() {
+    return `<div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-gray-500 px-2 py-1.5 mb-2 bg-gray-50 rounded border border-gray-200">
+        <span class="font-semibold text-gray-600">Legendă:</span>
+        <span class="flex items-center gap-1"><span class="inline-block px-1.5 py-0.5 rounded bg-amber-50 border border-amber-200 text-amber-800 font-medium">Nume<span class="text-red-500">*</span></span>obligatoriu</span>
+        <span class="flex items-center gap-1"><span class="inline-block px-1.5 py-0.5 rounded bg-gray-50 text-gray-600">Nume</span>opțional</span>
+        <span class="flex items-center gap-1"><span class="bg-green-100 text-green-700 rounded px-1 leading-4">✏️</span>permite custom</span>
+        <span class="flex items-center gap-1"><span class="bg-gray-200 text-gray-500 rounded px-1 leading-4">🔒</span>doar lista</span>
+        <span class="flex items-center gap-1"><span class="inline-block w-3 h-3 rounded-full bg-gray-300"></span>nemapat</span>
+        <span class="flex items-center gap-1"><span class="inline-block w-3 h-3 rounded-full" style="background:#16a34a;"></span>mapat</span>
+        <span class="flex items-center gap-1"><span class="inline-block w-3 h-3 rounded-full" style="background:#3b82f6;"></span>se trasează</span>
+        <span class="flex items-center gap-1">🤖 valoare propusă AI</span>
+        <span class="flex items-center gap-1"><span class="material-icons text-gray-400" style="font-size:13px;">drag_indicator</span>trage coloana</span>
+    </div>`;
+}
 
 export function initializeSortable() {
     const thumbsContainer = document.getElementById('thumbnails-container');
@@ -797,95 +853,12 @@ financiarProductTable: (products, detailsMap, commandId, calculatedData = null) 
                             </div>
                         </div>
 
-                        <div class="relative" id="attributes-mapping-area" style="min-height:160px;">
-                            <svg id="connections-svg" style="position:absolute;top:0;left:0;width:100%;height:100%;overflow:visible;pointer-events:none;z-index:1;"></svg>
-                            <div class="grid grid-cols-3" style="position:relative;z-index:0;">
-                                <div class="pr-6 border-r border-gray-200" data-platform="emag">
-                                    <div class="flex items-center gap-2 mb-2 pb-2 border-b border-gray-100">
-                                        <div class="w-2.5 h-2.5 rounded-full bg-blue-500 flex-shrink-0"></div>
-                                        <span class="font-semibold text-sm text-blue-600">eMAG</span>
-                                    </div>
-                                    <div class="mb-2">
-                                        <div class="flex items-center gap-1.5">
-                                            <select id="category-selector-emag" data-platform="emag"
-                                                    class="flex-1 border border-gray-200 rounded px-2 py-1 text-xs bg-white focus:ring-1 focus:ring-blue-400 focus:outline-none min-w-0">
-                                                <option value="">Se încarcă...</option>
-                                            </select>
-                                            <label class="flex items-center gap-1 cursor-pointer flex-shrink-0">
-                                                <input type="checkbox" id="show-all-emag" data-platform="emag"
-                                                       class="w-3 h-3 text-blue-600 rounded cursor-pointer">
-                                                <span class="text-xs text-gray-500 whitespace-nowrap">Toate</span>
-                                            </label>
-                                        </div>
-                                        <div id="all-categories-emag" class="hidden mt-1">
-                                            <input type="text" id="cat-search-emag" data-platform="emag"
-                                                   placeholder="Caută categorie eMAG..."
-                                                   class="w-full border border-gray-200 rounded px-2 py-1 text-xs focus:ring-1 focus:ring-blue-400 focus:outline-none">
-                                            <div id="cat-results-emag"
-                                                 class="mt-1 border border-gray-200 rounded max-h-40 overflow-y-auto bg-white shadow-sm text-xs"></div>
-                                        </div>
-                                    </div>
-                                    <div id="emag-attributes" class="space-y-1.5">
-                                        <p class="text-xs text-gray-400 italic">Selectați o categorie</p>
-                                    </div>
-                                </div>
-                                <div class="px-6 border-r border-gray-200" data-platform="trendyol">
-                                    <div class="flex items-center gap-2 mb-2 pb-2 border-b border-gray-100">
-                                        <div class="w-2.5 h-2.5 rounded-full bg-orange-500 flex-shrink-0"></div>
-                                        <span class="font-semibold text-sm text-orange-500">Trendyol</span>
-                                    </div>
-                                    <div class="mb-2">
-                                        <div class="flex items-center gap-1.5">
-                                            <select id="category-selector-trendyol" data-platform="trendyol"
-                                                    class="flex-1 border border-gray-200 rounded px-2 py-1 text-xs bg-white focus:ring-1 focus:ring-orange-400 focus:outline-none min-w-0">
-                                                <option value="">Selectați o categorie...</option>
-                                            </select>
-                                            <label class="flex items-center gap-1 cursor-pointer flex-shrink-0">
-                                                <input type="checkbox" id="show-all-trendyol" data-platform="trendyol"
-                                                       class="w-3 h-3 text-orange-500 rounded cursor-pointer">
-                                                <span class="text-xs text-gray-500 whitespace-nowrap">Toate</span>
-                                            </label>
-                                        </div>
-                                        <div id="all-categories-trendyol" class="hidden mt-1">
-                                            <input type="text" id="cat-search-trendyol" data-platform="trendyol"
-                                                   placeholder="Caută categorie Trendyol..."
-                                                   class="w-full border border-gray-200 rounded px-2 py-1 text-xs focus:ring-1 focus:ring-orange-400 focus:outline-none">
-                                            <div id="cat-results-trendyol"
-                                                 class="mt-1 border border-gray-200 rounded max-h-40 overflow-y-auto bg-white shadow-sm text-xs"></div>
-                                        </div>
-                                    </div>
-                                    <div id="trendyol-attributes" class="space-y-1.5">
-                                        <p class="text-xs text-gray-400 italic">Selectați o categorie</p>
-                                    </div>
-                                </div>
-                                <div class="pl-6" data-platform="temu">
-                                    <div class="flex items-center gap-2 mb-2 pb-2 border-b border-gray-100">
-                                        <div class="w-2.5 h-2.5 rounded-full bg-red-500 flex-shrink-0"></div>
-                                        <span class="font-semibold text-sm text-red-500">Temu</span>
-                                    </div>
-                                    <div class="mb-2">
-                                        <div class="flex items-center gap-1.5">
-                                            <select id="category-selector-temu" data-platform="temu"
-                                                    class="flex-1 border border-gray-200 rounded px-2 py-1 text-xs bg-white focus:ring-1 focus:ring-red-400 focus:outline-none min-w-0">
-                                                <option value="">Selectați o categorie...</option>
-                                            </select>
-                                            <label class="flex items-center gap-1 cursor-pointer flex-shrink-0">
-                                                <input type="checkbox" id="show-all-temu" data-platform="temu"
-                                                       class="w-3 h-3 text-red-500 rounded cursor-pointer">
-                                                <span class="text-xs text-gray-500 whitespace-nowrap">Toate</span>
-                                            </label>
-                                        </div>
-                                        <div id="all-categories-temu" class="hidden mt-1">
-                                            <input type="text" id="cat-search-temu" data-platform="temu"
-                                                   placeholder="Caută categorie Temu..."
-                                                   class="w-full border border-gray-200 rounded px-2 py-1 text-xs focus:ring-1 focus:ring-red-400 focus:outline-none">
-                                            <div id="cat-results-temu"
-                                                 class="mt-1 border border-gray-200 rounded max-h-40 overflow-y-auto bg-white shadow-sm text-xs"></div>
-                                        </div>
-                                    </div>
-                                    <div id="temu-attributes" class="space-y-1.5">
-                                        <p class="text-xs text-gray-400 italic">Selectați o categorie</p>
-                                    </div>
+                        ${renderMappingLegend()}
+                        <div id="attributes-mapping-area" class="relative overflow-auto border border-gray-100 rounded" style="max-height:70vh;min-height:160px;">
+                            <div id="mapping-inner" class="relative" style="min-width:max-content;">
+                                <svg id="connections-svg" style="position:absolute;top:0;left:0;width:100%;height:100%;overflow:visible;pointer-events:none;z-index:1;"></svg>
+                                <div id="marketplace-grid" class="grid relative" style="grid-template-columns: repeat(${MARKETPLACES.length}, minmax(280px, 1fr)); z-index:0;">
+                                    ${MARKETPLACES.map((mp, idx) => renderMarketplaceColumn(mp, idx)).join('')}
                                 </div>
                             </div>
                         </div>

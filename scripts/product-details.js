@@ -12,8 +12,30 @@ import {
     SAVE_PRODUCT_ATTRIBUTES_URL,
     GET_PRODUCT_ATTRIBUTES_URL,
     ALL_CATEGORIES_URL,
-    CATEGORY_MAPPINGS_WEBHOOK_URL
+    CATEGORY_MAPPINGS_WEBHOOK_URL,
+    MARKETPLACES
 } from './constants.js';
+
+// LocalStorage key pentru ordinea coloanelor marketplace — persistă între reload-uri.
+const MARKETPLACE_ORDER_STORAGE_KEY = 'off-site-dev:marketplace-order';
+
+// Aplică ordinea salvată peste array-ul MARKETPLACES IMPORTAT (mutare in-place).
+// Trebuie să ruleze ÎNAINTE ca templates.js să citească MARKETPLACES — apel top-level.
+// Edge case: dacă ordinea salvată nu conține toate marketplace-urile (ex: utilizator
+// a făcut reorder → apoi a fost adăugat un marketplace nou), cele lipsă se duc la
+// coadă (indicele 1e9), păstrând ordinea lor relativă din array-ul original.
+function applyPersistedMarketplaceOrder() {
+    try {
+        const saved = JSON.parse(localStorage.getItem(MARKETPLACE_ORDER_STORAGE_KEY) || 'null');
+        if (!Array.isArray(saved) || !saved.length) return;
+        const indexOf = id => {
+            const i = saved.indexOf(id);
+            return i === -1 ? 1e9 : i;
+        };
+        MARKETPLACES.sort((a, b) => indexOf(a.id) - indexOf(b.id));
+    } catch (e) { /* storage indisponibil — ignorăm */ }
+}
+applyPersistedMarketplaceOrder();
 import { renderImageGallery, initializeSortable, templates } from './templates.js';
 import { saveProductDetails } from './data.js';
 
@@ -152,6 +174,13 @@ export async function fetchAndRenderCompetition(asin) {
     const container = document.getElementById('competition-container');
     if (!container) return;
     state.competitionDataCache = null;
+
+    // Init-uri idempotente — leagă drag-connect și drag-reorder pe elementele care tocmai
+    // au fost montate de templates.produsDetaliu. Se poate să fi fost deja apelate din
+    // loadProductAttributesFromDB (care rulează înainte), dar flag-urile `_dragHandler`
+    // și `_sortableBound` previn dublarea listenerilor.
+    initDragConnect();
+    initMarketplaceReorder();
 
     try {
         const response = await fetch(COMPETITION_WEBHOOK_URL, {
@@ -537,10 +566,12 @@ export function handleDescriptionToggle(descModeButton) {
 const mappingState = {
     connections: [],
     dragging: null,
-    categories: { emag: null, trendyol: null, temu: null },
+    // Categorii și savedValues: construite dinamic din MARKETPLACES → generalizare
+    // spre adăugarea ulterioară de marketplace-uri noi fără edit aici.
+    categories: Object.fromEntries(MARKETPLACES.map(m => [m.id, null])),
     // savedValues[platform][categoryId] = { attrId: value, ... }
     // Indexat pe categoryId ca să nu se piardă munca la switch accidental de categorie.
-    savedValues: { emag: {}, trendyol: {}, temu: {} },
+    savedValues: Object.fromEntries(MARKETPLACES.map(m => [m.id, {}])),
     // savedConnections[comboKey] = [{fromPlatform, fromAttrId, ...}, ...]
     // comboKey = 'emag:X|trendyol:Y|temu:Z' — conexiunile depind de categoriile TUTUROR platformelor.
     savedConnections: {},
@@ -553,9 +584,15 @@ const mappingState = {
 };
 
 // Construiește cheia de combo din categoriile active pe toate platformele.
+// Folosim ordinea *canonică* (nu cea din MARKETPLACES) ca să fie stabilă cross-session:
+// dacă user-ul rearanjează coloanele, cheia rămâne aceeași pentru același combo.
 function buildConnectionsKey() {
     const c = mappingState.categories;
-    return `emag:${c.emag || ''}|trendyol:${c.trendyol || ''}|temu:${c.temu || ''}`;
+    return MARKETPLACES
+        .map(m => m.id)
+        .sort()
+        .map(id => `${id}:${c[id] || ''}`)
+        .join('|');
 }
 
 // Cache pentru valorile predefinite ale atributelor: key = `${platform}-${attrId}`
@@ -672,6 +709,7 @@ export async function handleCategoryChange(platform, categoryId) {
         restoreConnections();
     }
     initDragConnect();
+    initMarketplaceReorder();
 
     // 6. La schimbarea activă a categoriei eMAG, caută mapări pe Trendyol/Temu
     //    și pre-populează dropdown-urile + fetch caracteristici pentru cea mai bună.
@@ -691,7 +729,11 @@ async function applyCategoryMappings(emagCategoryId) {
         if (!res.ok) return;
         const data = await res.json();
         const mappings = data?.mappings || {};
-        for (const targetPlatform of ['trendyol', 'temu']) {
+        // Iterăm peste toate marketplace-urile în afară de eMAG (sursa).
+        // Când adaugi un marketplace nou în MARKETPLACES, va primi automat mapping lookup
+        // pentru noul `<id>_ro` dacă workflow-ul v2-category-mappings îl returnează.
+        const targetPlatforms = MARKETPLACES.map(m => m.id).filter(id => id !== 'emag');
+        for (const targetPlatform of targetPlatforms) {
             const list = Array.isArray(mappings[targetPlatform]) ? mappings[targetPlatform] : [];
             if (!list.length) continue;
 
@@ -728,9 +770,15 @@ function populateMappedCategoryDropdown(platform, list, selectedId = null) {
     const emptyOpt = '<option value="">Selectați o categorie...</option>';
     const opts = list.map(m => {
         const badge = m.confidence === 'manual' ? ' ✓' : '';
-        const name = (m.categoryName || ('Categorie ' + m.categoryId)).replace(/"/g, '&quot;');
+        // EN-only în data-name: fetchAndRenderAttributes folosește dataset.name ca fallback
+        // pentru lookup-ul de categorii în v2-category-attributes (care caută după numele
+        // oficial EN, nu după traducere). Afișarea însă poate fi bilingvă.
+        const enName = (m.categoryName || ('Categorie ' + m.categoryId)).replace(/"/g, '&quot;');
+        const displayName = m.nameRo
+            ? `${String(m.nameRo).replace(/"/g, '&quot;')} (${enName})`
+            : enName;
         const isSel = String(m.categoryId) === targetId ? ' selected' : '';
-        return `<option value="${m.categoryId}" data-name="${name}"${isSel}>${name}${badge}</option>`;
+        return `<option value="${m.categoryId}" data-name="${enName}"${isSel}>${displayName}${badge}</option>`;
     }).join('');
     selector.innerHTML = emptyOpt + opts;
     if (targetId) selector.value = targetId;
@@ -825,20 +873,35 @@ function renderAttributeRow(attr, platform) {
                data-attr-id="${attrId}" data-platform="${platform}" placeholder="${placeholder}" value="${attr.value || ''}">`;
     }
 
-    // eMAG (coloana din stânga) nu are nimic la stânga → fără dot stâng
-    // Temu (coloana din dreapta) nu are nimic la dreapta → fără dot drept
-    // Trendyol e bridge → ambele dot-uri
-    const leftDot = platform === 'emag'
+    // Prima coloană (din MARKETPLACES) nu are dot stâng, ultima nu are dot drept.
+    // Coloanele intermediare (bridge) au ambele dot-uri. Asta urmează ordinea curentă
+    // din MARKETPLACES, deci funcționează corect după drag-reorder.
+    const idx = MARKETPLACES.findIndex(m => m.id === platform);
+    const isFirstCol = idx === 0;
+    const isLastCol  = idx === MARKETPLACES.length - 1;
+    const leftDot = isFirstCol
         ? '<div class="w-3 flex-shrink-0"></div>'
         : `<div class="connector-dot bg-gray-300" data-side="left" data-platform="${platform}" data-attr-id="${attrId}"></div>`;
-    const rightDot = platform === 'temu'
+    const rightDot = isLastCol
         ? '<div class="w-3 flex-shrink-0"></div>'
         : `<div class="connector-dot bg-gray-300" data-side="right" data-platform="${platform}" data-attr-id="${attrId}"></div>`;
+
+    // Display bilingv: dacă există nameRo (din catalogs.characteristics.name_ro),
+    // arată "Nume RO (Nume EN)". Altfel, doar EN. Titlul tooltip-ului e RO dacă există,
+    // ca să confirme exact ce a generat Gemini pe hover.
+    const nameEn = escapeHtmlAttr(attr.name || '');
+    const nameRo = attr.nameRo ? escapeHtmlAttr(attr.nameRo) : '';
+    const displayName = nameRo
+        ? `${nameRo} <span class="text-gray-400 font-normal">(${nameEn})</span>`
+        : nameEn;
+    const tooltipName = nameRo
+        ? `${attr.nameRo}${isRequired ? ' (obligatoriu)' : ''} — EN: ${attr.name}`
+        : `${attr.name}${isRequired ? ' (obligatoriu)' : ''}`;
 
     return `<div class="attr-row flex items-center gap-1" data-attr-id="${attrId}" data-platform="${platform}" data-required="${isRequired}">
         ${leftDot}
         <div class="flex-1 flex items-center gap-1.5 ${bgClass} rounded px-2 py-1 min-w-0">
-            <span class="text-xs ${labelClass} font-medium flex-shrink-0 truncate" style="width:40%" title="${attr.name}${isRequired ? ' (obligatoriu)' : ''}">${attr.name}${requiredMark}</span>
+            <span class="text-xs ${labelClass} font-medium flex-shrink-0 truncate" style="width:40%" title="${escapeHtmlAttr(tooltipName)}">${displayName}${requiredMark}</span>
             ${customBadge}
             ${inputHtml}
         </div>
@@ -910,13 +973,21 @@ function initAttrDropdowns(platform) {
     });
 }
 
+// Referința pentru coordonatele SVG e #mapping-inner (wrapper-ul cu min-width:max-content
+// care conține atât grid-ul coloanelor cât și SVG-ul). Fallback pe #attributes-mapping-area
+// pentru robustețe în caz că template-ul e intermediar într-un re-render.
+function getInnerRect() {
+    const inner = document.getElementById('mapping-inner') || document.getElementById('attributes-mapping-area');
+    return inner ? inner.getBoundingClientRect() : null;
+}
+
 function getDotPos(dot) {
-    const area = document.getElementById('attributes-mapping-area');
-    const areaRect = area.getBoundingClientRect();
+    const innerRect = getInnerRect();
+    if (!innerRect) return { x: 0, y: 0 };
     const dotRect = dot.getBoundingClientRect();
     return {
-        x: dotRect.left + dotRect.width / 2 - areaRect.left,
-        y: dotRect.top + dotRect.height / 2 - areaRect.top
+        x: dotRect.left + dotRect.width / 2 - innerRect.left,
+        y: dotRect.top + dotRect.height / 2 - innerRect.top
     };
 }
 
@@ -936,38 +1007,121 @@ function makeSvgPath(d, stroke, dashed) {
     return path;
 }
 
+// Recalculează poziția tuturor path-urilor SVG pe baza pozițiilor curente ale dot-urilor.
+// Triggerat de window.resize, ResizeObserver pe mapping area, și drag-reorder marketplaces.
+function recomputeAllConnectionPositions() {
+    if (!mappingState.connections.length) return;
+    for (const conn of mappingState.connections) {
+        if (!conn.path || !conn.path.isConnected) continue;
+        const fromDot = document.querySelector(
+            `.connector-dot[data-platform="${conn.fromPlatform}"][data-attr-id="${conn.fromAttrId}"][data-side="${conn.fromSide}"]`);
+        const toDot = document.querySelector(
+            `.connector-dot[data-platform="${conn.toPlatform}"][data-attr-id="${conn.toAttrId}"][data-side="${conn.toSide}"]`);
+        if (!fromDot || !toDot) continue;
+        const a = getDotPos(fromDot);
+        const b = getDotPos(toDot);
+        conn.path.setAttribute('d', bezierPath(a.x, a.y, b.x, b.y));
+    }
+}
+
 function initDragConnect() {
     const area = document.getElementById('attributes-mapping-area');
     if (!area) return;
     if (area._dragHandler) area.removeEventListener('mousedown', area._dragHandler);
+
+    // Idempotent: leagă listenerii de resize o singură dată per element #attributes-mapping-area.
+    // La remount-ul template-ului (nou element) flag-ul lipsește și se leagă din nou.
+    if (!area._resizeBound) {
+        let rafPending = false;
+        const onResize = () => {
+            if (rafPending) return;
+            rafPending = true;
+            requestAnimationFrame(() => {
+                rafPending = false;
+                recomputeAllConnectionPositions();
+            });
+        };
+        window.addEventListener('resize', onResize);
+        try {
+            const ro = new ResizeObserver(onResize);
+            ro.observe(area);
+            area._resizeObserver = ro;
+        } catch (e) { /* ResizeObserver not available — window.resize is enough */ }
+        // Recompute și la scroll (orizontal/vertical) pentru ca dacă vreun listener extern
+        // modifică scroll-ul în timpul unui drag liniile să rămână aliniate.
+        area.addEventListener('scroll', onResize);
+        area._resizeBound = true;
+        area._resizeHandler = onResize;
+    }
+
+    // Parametri pentru auto-scroll în timpul drag-ului.
+    const SCROLL_ZONE = 60;          // px de la margine la care începe auto-scroll
+    const MAX_SCROLL_SPEED = 14;     // px/frame la apropiere maximă
 
     const handler = e => {
         const dot = e.target.closest('.connector-dot');
         if (!dot) return;
         e.preventDefault();
 
-        const pos = getDotPos(dot);
         const svg = document.getElementById('connections-svg');
-        const tempPath = makeSvgPath(bezierPath(pos.x, pos.y, pos.x, pos.y), '#3b82f6', true);
+        const tempPath = makeSvgPath(bezierPath(0, 0, 0, 0), '#3b82f6', true);
         svg.appendChild(tempPath);
         dot.style.backgroundColor = '#3b82f6';
 
+        let lastEv = e;
+        let rafId = null;
+
+        // rAF loop: auto-scroll pe muchie + redraw temp path. Rulează continuu cât timp
+        // drag-ul e activ (se oprește în onUp). Citește cursorul curent din `lastEv` care
+        // e actualizat de onMove — astfel scroll-ul se întâmplă chiar dacă user-ul ține
+        // mouse-ul nemișcat lângă marginea containerului.
+        const frame = () => {
+            if (!lastEv) { rafId = null; return; }
+            const areaEl = document.getElementById('attributes-mapping-area');
+            if (!areaEl) { rafId = null; return; }
+            const areaRect = areaEl.getBoundingClientRect();
+
+            const distTop    = lastEv.clientY - areaRect.top;
+            const distBottom = areaRect.bottom - lastEv.clientY;
+            if (distTop    < SCROLL_ZONE) areaEl.scrollTop -= MAX_SCROLL_SPEED * Math.max(0, 1 - distTop    / SCROLL_ZONE);
+            if (distBottom < SCROLL_ZONE) areaEl.scrollTop += MAX_SCROLL_SPEED * Math.max(0, 1 - distBottom / SCROLL_ZONE);
+
+            const distLeft  = lastEv.clientX - areaRect.left;
+            const distRight = areaRect.right - lastEv.clientX;
+            if (distLeft  < SCROLL_ZONE) areaEl.scrollLeft -= MAX_SCROLL_SPEED * Math.max(0, 1 - distLeft  / SCROLL_ZONE);
+            if (distRight < SCROLL_ZONE) areaEl.scrollLeft += MAX_SCROLL_SPEED * Math.max(0, 1 - distRight / SCROLL_ZONE);
+
+            // Redraw temp path. Sursa e recalculată fresh în fiecare frame, pentru ca
+            // dacă scroll-ul a modificat poziția dot-ului (container scrollabil), path-ul
+            // să rămână ancorat. getDotPos folosește innerRect → coordonate stabile.
+            const innerRect = getInnerRect();
+            if (innerRect) {
+                const srcPos = getDotPos(dot);
+                const ex = lastEv.clientX - innerRect.left;
+                const ey = lastEv.clientY - innerRect.top;
+                tempPath.setAttribute('d', bezierPath(srcPos.x, srcPos.y, ex, ey));
+            }
+
+            rafId = requestAnimationFrame(frame);
+        };
+
         const onMove = ev => {
-            const areaRect = document.getElementById('attributes-mapping-area').getBoundingClientRect();
-            const ex = ev.clientX - areaRect.left;
-            const ey = ev.clientY - areaRect.top;
-            tempPath.setAttribute('d', bezierPath(pos.x, pos.y, ex, ey));
+            lastEv = ev;
+            if (rafId == null) rafId = requestAnimationFrame(frame);
         };
 
         const onUp = ev => {
             document.removeEventListener('mousemove', onMove);
             document.removeEventListener('mouseup', onUp);
+            if (rafId != null) { cancelAnimationFrame(rafId); rafId = null; }
+            lastEv = null;
             dot.style.backgroundColor = '';
 
             const targetDot = ev.target.closest('.connector-dot');
             if (targetDot && targetDot !== dot && targetDot.dataset.platform !== dot.dataset.platform) {
+                const srcPos = getDotPos(dot);
                 const endPos = getDotPos(targetDot);
-                tempPath.setAttribute('d', bezierPath(pos.x, pos.y, endPos.x, endPos.y));
+                tempPath.setAttribute('d', bezierPath(srcPos.x, srcPos.y, endPos.x, endPos.y));
                 tempPath.setAttribute('stroke', '#16a34a');
                 tempPath.removeAttribute('stroke-dasharray');
                 tempPath.setAttribute('pointer-events', 'visibleStroke');
@@ -983,6 +1137,16 @@ function initDragConnect() {
                     toSide: targetDot.dataset.side,
                     path: tempPath
                 };
+                // Strict 1:1: orice conexiune existentă care atinge unul dintre cele
+                // două dot-uri (sursă SAU țintă, orice capăt) este înlocuită automat.
+                // Evită duplicate vizuale și împiedică 1-to-many pe aceeași caracteristică.
+                const conflicting = mappingState.connections.filter(c =>
+                    (c.fromPlatform === dot.dataset.platform && c.fromAttrId === dot.dataset.attrId && c.fromSide === dot.dataset.side) ||
+                    (c.toPlatform   === dot.dataset.platform && c.toAttrId   === dot.dataset.attrId && c.toSide   === dot.dataset.side) ||
+                    (c.fromPlatform === targetDot.dataset.platform && c.fromAttrId === targetDot.dataset.attrId && c.fromSide === targetDot.dataset.side) ||
+                    (c.toPlatform   === targetDot.dataset.platform && c.toAttrId   === targetDot.dataset.attrId && c.toSide   === targetDot.dataset.side)
+                );
+                conflicting.forEach(removeConnection);
                 mappingState.connections.push(conn);
                 dot.style.backgroundColor = '#16a34a';
                 targetDot.style.backgroundColor = '#16a34a';
@@ -996,12 +1160,52 @@ function initDragConnect() {
             }
         };
 
+        // Inițiere: poziționăm path-ul la sursă (primul frame ascunde start = end).
+        const initPos = getDotPos(dot);
+        tempPath.setAttribute('d', bezierPath(initPos.x, initPos.y, initPos.x, initPos.y));
+
         document.addEventListener('mousemove', onMove);
         document.addEventListener('mouseup', onUp);
     };
 
     area.addEventListener('mousedown', handler);
     area._dragHandler = handler;
+}
+
+// Drag-reorder coloane marketplace folosind SortableJS (deja încărcat global via CDN).
+// Idempotent: leagă Sortable o singură dată per element #marketplace-grid, ca să nu
+// dubleze listenerii la remount-uri consecutive ale template-ului.
+function initMarketplaceReorder() {
+    if (typeof Sortable === 'undefined') return;
+    const grid = document.getElementById('marketplace-grid');
+    if (!grid || grid._sortableBound) return;
+    grid._sortableBound = true;
+
+    Sortable.create(grid, {
+        animation: 150,
+        handle: '.marketplace-drag-handle',
+        draggable: '.marketplace-column',
+        ghostClass: 'opacity-50',
+        chosenClass: 'ring-2',
+        onEnd: () => {
+            // Citim noua ordine direct din DOM (sursa de adevăr post-drag)
+            const newOrder = Array.from(grid.querySelectorAll('.marketplace-column'))
+                .map(el => el.dataset.platform)
+                .filter(Boolean);
+            if (!newOrder.length) return;
+            // Persistăm în localStorage pentru reload
+            try {
+                localStorage.setItem(MARKETPLACE_ORDER_STORAGE_KEY, JSON.stringify(newOrder));
+            } catch (e) { /* storage indisponibil — ignorăm */ }
+            // Mutăm in-memory array-ul MARKETPLACES (preserves identity — alte module
+            // care importă MARKETPLACES vor vedea noua ordine fără reimport)
+            MARKETPLACES.sort((a, b) => newOrder.indexOf(a.id) - newOrder.indexOf(b.id));
+            // Conexiunile sunt identificate prin (platform, attrId) — nu prin poziție,
+            // deci nu se pierde nicio conexiune. Dot-urile SVG trebuie doar recalculate
+            // la noua poziție DOM (un frame după reflow-ul SortableJS).
+            requestAnimationFrame(() => recomputeAllConnectionPositions());
+        }
+    });
 }
 
 function removeConnection(conn) {
@@ -1113,6 +1317,21 @@ function restoreConnectionsFromList(list) {
     if (!list || !list.length) return;
     const svg = document.getElementById('connections-svg');
     if (!svg) return;
+    // Defensive 1:1 dedup — row-urile legacy din DB pot viola strict 1:1 (era posibil
+    // înainte de enforcement). Păstrăm DOAR ultima conexiune per-endpoint, ca fiecare
+    // caracteristică să aibă cel mult o linie la restore.
+    const seenEndpoints = new Map();
+    const dedupedList = [];
+    for (let i = list.length - 1; i >= 0; i--) {
+        const c = list[i];
+        const keyFrom = `${c.fromPlatform}|${c.fromAttrId}|${c.fromSide}`;
+        const keyTo   = `${c.toPlatform}|${c.toAttrId}|${c.toSide}`;
+        if (seenEndpoints.has(keyFrom) || seenEndpoints.has(keyTo)) continue;
+        seenEndpoints.set(keyFrom, true);
+        seenEndpoints.set(keyTo, true);
+        dedupedList.unshift(c);
+    }
+    list = dedupedList;
     list.forEach(c => {
         const fromDot = document.querySelector(`.connector-dot[data-platform="${c.fromPlatform}"][data-attr-id="${c.fromAttrId}"][data-side="${c.fromSide}"]`);
         const toDot = document.querySelector(`.connector-dot[data-platform="${c.toPlatform}"][data-attr-id="${c.toAttrId}"][data-side="${c.toSide}"]`);
@@ -1144,7 +1363,8 @@ function collectAttributeValuesForPlatform(platform) {
 
 function collectAllAttributeValues() {
     const result = {};
-    ['emag', 'trendyol', 'temu'].forEach(platform => {
+    MARKETPLACES.forEach(mp => {
+        const platform = mp.id;
         const values = collectAttributeValuesForPlatform(platform);
         const categoryId = mappingState.categories[platform];
         result[platform] = { categoryId: categoryId || null, attributes: values };
@@ -1168,6 +1388,10 @@ async function saveAttributesToDB(asin) {
         // pentru același attrId pe Trendyol, adăugăm o mapare virtuală eMAG[X]↔Temu[Z]
         // marcată `via: 'trendyol'`. Backend-ul o va folosi la învățarea în
         // mappings.characteristics ca să știm că toate trei reprezintă aceeași caracteristică.
+        // LITE LIMITATION: chain inference e 3-platform-aware hardcodat (eMAG↔Trendyol↔Temu).
+        // Pentru a generaliza la N platforme: construiește un graf de mapping peste TOATE
+        // perechile (platform, attrId) și propagă tranzitiv echivalența prin BFS/DFS, apoi
+        // emit toate perechile eMAG↔<otherN> care rezultă din closure-ul tranzitiv.
         const chainMappings = [];
         for (const a of mappings) {
             const aIsEmagTr = (a.fromPlatform === 'emag' && a.toPlatform === 'trendyol');
@@ -1214,8 +1438,8 @@ export async function loadProductAttributesFromDB(asin) {
     // accidental Temu=500 deși user-ul nu a ales nimic pe Temu pentru B.
     mappingState.connections = [];
     mappingState.dragging = null;
-    mappingState.categories = { emag: null, trendyol: null, temu: null };
-    mappingState.savedValues = { emag: {}, trendyol: {}, temu: {} };
+    mappingState.categories = Object.fromEntries(MARKETPLACES.map(m => [m.id, null]));
+    mappingState.savedValues = Object.fromEntries(MARKETPLACES.map(m => [m.id, {}]));
     mappingState.savedConnections = {};
     mappingState.savedMappings = [];
     mappingState.searchTimers = {};
@@ -1242,7 +1466,7 @@ export async function loadProductAttributesFromDB(asin) {
         mappingState._suppressEmagMappingLookup = true;
         try {
             // Restaurare categorii și valori per platformă
-            const platforms = ['emag', 'trendyol', 'temu'];
+            const platforms = MARKETPLACES.map(m => m.id);
             for (const platform of platforms) {
                 const platformData = listingData[platform];
                 if (!platformData?.categoryId) continue;
@@ -1269,6 +1493,7 @@ export async function loadProductAttributesFromDB(asin) {
             }
             restoreConnections();
             initDragConnect();
+            initMarketplaceReorder();
             // Salvăm conexiunile din DB și în memoria locală sub cheia combo curentă,
             // astfel că un switch accidental și revenire le va restaura din memorie.
             if (mappings.length) {
@@ -1279,11 +1504,12 @@ export async function loadProductAttributesFromDB(asin) {
             mappingState._suppressEmagMappingLookup = false;
         }
 
-        // După restaurare: dacă produsul are eMAG salvat dar NU are Trendyol sau Temu,
-        // declanșăm lookup-ul de mapări ca să pre-populăm dropdown-urile de pe celelalte
-        // platforme (feature cerut explicit: auto-mapping pe baza eMAG la page load).
+        // După restaurare: dacă produsul are eMAG salvat dar NU are salvare pe vreo altă
+        // platformă, declanșăm lookup-ul de mapări ca să pre-populăm dropdown-urile de pe
+        // celelalte platforme (feature cerut explicit: auto-mapping pe baza eMAG la page load).
         const emagId = listingData.emag?.categoryId;
-        const missingTarget = emagId && (!listingData.trendyol?.categoryId || !listingData.temu?.categoryId);
+        const otherPlatforms = MARKETPLACES.map(m => m.id).filter(id => id !== 'emag');
+        const missingTarget = emagId && otherPlatforms.some(p => !listingData[p]?.categoryId);
         if (missingTarget) {
             await applyCategoryMappings(String(emagId));
         }
@@ -1401,7 +1627,7 @@ export async function handleAiFillAttributes(button) {
     const description = state.editedProductData?.description || '';
     const images = (state.editedProductData?.images || []).slice(0, 3);
 
-    const platforms = ['emag', 'trendyol', 'temu'].filter(p => mappingState.categories[p]);
+    const platforms = MARKETPLACES.map(m => m.id).filter(p => mappingState.categories[p]);
     if (!platforms.length) {
         alert('Selectează mai întâi o categorie pe cel puțin o platformă.');
         button.disabled = false;
