@@ -30,7 +30,7 @@
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "SELECT target_marketplace, target_category_id, target_category_name, confidence, usage_count, confirmed_by FROM mappings.categories WHERE source_marketplace = $1 AND source_category_id = $2 AND is_orphaned = false AND target_marketplace IN ('trendyol_ro', 'temu_ro') ORDER BY target_marketplace, CASE WHEN confidence = 'manual' THEN 0 WHEN confidence = 'auto' THEN 1 ELSE 2 END, COALESCE(usage_count, 0) DESC;",
+        "query": "SELECT m.target_marketplace, m.target_category_id, m.target_category_name, m.confidence, m.usage_count, m.confirmed_by, c.name_ro AS target_name_ro FROM mappings.categories m LEFT JOIN catalogs.categories c ON c.marketplace = m.target_marketplace AND c.category_id = m.target_category_id WHERE m.source_marketplace = $1 AND m.source_category_id = $2 AND m.is_orphaned = false AND m.target_marketplace IN ('trendyol_ro', 'temu_ro') ORDER BY m.target_marketplace, CASE WHEN m.confidence = 'manual' THEN 0 WHEN m.confidence = 'auto' THEN 1 ELSE 2 END, COALESCE(m.usage_count, 0) DESC;",
         "options": {
           "queryReplacement": "={{ $json.sourceMarketplace }},={{ $json.sourceCategoryId }}"
         }
@@ -50,7 +50,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Grupează rezultatele pe platformă target și marchează best per grup\nconst rows = $input.all().map(item => item.json);\nconst marketplaceToPlatform = {\n  'trendyol_ro': 'trendyol',\n  'temu_ro': 'temu'\n};\n\nconst result = { trendyol: [], temu: [] };\n\nfor (const row of rows) {\n  if (!row || !row.target_marketplace || !row.target_category_id) continue;\n  const platform = marketplaceToPlatform[row.target_marketplace];\n  if (!platform) continue;\n  result[platform].push({\n    categoryId: String(row.target_category_id),\n    categoryName: row.target_category_name || ('Categorie ' + row.target_category_id),\n    confidence: row.confidence || 'auto',\n    usageCount: row.usage_count || 0,\n    confirmedBy: row.confirmed_by || null,\n    isBest: false\n  });\n}\n\n// Primul item în fiecare grup e cel mai bun (deja sortat de SQL)\nfor (const platform of ['trendyol', 'temu']) {\n  if (result[platform].length > 0) {\n    result[platform][0].isBest = true;\n  }\n}\n\nreturn [{ json: { mappings: result } }];\n"
+        "jsCode": "// Grupează rezultatele pe platformă target și marchează best per grup\nconst rows = $input.all().map(item => item.json);\nconst marketplaceToPlatform = {\n  'trendyol_ro': 'trendyol',\n  'temu_ro': 'temu'\n};\n\nconst result = { trendyol: [], temu: [] };\n\nfor (const row of rows) {\n  if (!row || !row.target_marketplace || !row.target_category_id) continue;\n  const platform = marketplaceToPlatform[row.target_marketplace];\n  if (!platform) continue;\n  result[platform].push({\n    categoryId: String(row.target_category_id),\n    categoryName: row.target_category_name || ('Categorie ' + row.target_category_id),\n    nameRo: row.target_name_ro || null,\n    confidence: row.confidence || 'auto',\n    usageCount: row.usage_count || 0,\n    confirmedBy: row.confirmed_by || null,\n    isBest: false\n  });\n}\n\n// Primul item în fiecare grup e cel mai bun (deja sortat de SQL)\nfor (const platform of ['trendyol', 'temu']) {\n  if (result[platform].length > 0) {\n    result[platform][0].isBest = true;\n  }\n}\n\nreturn [{ json: { mappings: result } }];\n"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,

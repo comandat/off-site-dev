@@ -43,3 +43,19 @@ export const languageNameToCodeMap = Object.entries(languages).reduce((acc, [cod
     acc[name.toLowerCase()] = code.toUpperCase();
     return acc;
 }, {});
+
+// Marketplace registry — sursa de adevăr pentru ce coloane apar în UI-ul de mapping
+// categorii/caracteristici. Pentru a adăuga un marketplace nou:
+//   1. adaugă un obiect aici cu un id unic;
+//   2. creează workflow-urile n8n corespunzătoare (v2-category-attributes trebuie să
+//      recunoască `platform` → `<id>_ro`);
+//   3. noua coloană apare automat în UI după reload.
+// `colorHex` e folosit inline (Tailwind JIT nu poate construi clase dinamice).
+// `position` e istoric (left/middle/right) — noul layout permite reordonare liberă
+// via drag-and-drop, deci poziția DOM efectivă e determinată de array-ul MARKETPLACES
+// (eventual rearanjat dintr-un localStorage).
+export const MARKETPLACES = [
+    { id: 'emag',     label: 'eMAG',     colorHex: '#3b82f6', position: 'left'   },
+    { id: 'trendyol', label: 'Trendyol', colorHex: '#f97316', position: 'middle' },
+    { id: 'temu',     label: 'Temu',     colorHex: '#ef4444', position: 'right'  }
+];
