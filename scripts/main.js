@@ -12,7 +12,7 @@ import {
 } from './api.js'; 
 import { AppState, fetchDataAndSyncState, fetchProductDetailsInBulk } from './data.js';
 import { templates } from './templates.js';
-import { GET_PALLETS_WEBHOOK_URL } from './constants.js'; 
+import { GET_PALLETS_WEBHOOK_URL, TEMU_SYNC_CATS_URL, TEMU_SYNC_ATTRS_URL, TEMU_RECOMMEND_BULK_URL } from './constants.js';
 import {
     loadTabData,
     handleProductSave,
@@ -420,6 +420,86 @@ document.addEventListener('DOMContentLoaded', async () => {
             if (action === 'refresh-ro-title') await handleTitleRefresh(actionButton);
             if (action === 'refresh-ro-description') await handleDescriptionRefresh(actionButton);
             if (action === 'ai-fill-attributes') await handleAiFillAttributes(actionButton);
+            if (action === 'temu-recommend-command') {
+                event.preventDefault();
+                const commandId = actionButton.dataset.commandId;
+                const commands = AppState.getCommands();
+                const command = commands.find(c => String(c.id) === String(commandId));
+                if (!command) { alert('Comanda nu a fost găsită.'); return; }
+                const products = command.products || [];
+                if (!products.length) { alert('Comanda nu conține produse.'); return; }
+                if (!confirm(`Rulez recomandare Temu pentru ${products.length} produse. Continuu?`)) return;
+
+                const menuItem = actionButton;
+                menuItem.style.pointerEvents = 'none';
+                const labelSpan = menuItem.querySelector('span:last-child');
+                const originalLabel = labelSpan ? labelSpan.textContent : 'Recomandă categorii Temu';
+                if (labelSpan) labelSpan.textContent = 'Se recomandă categorii...';
+
+                try {
+                    // Asigurăm cache de product details pentru toate ASIN-urile din comandă
+                    const asins = products.map(p => p.asin).filter(Boolean);
+                    await fetchProductDetailsInBulk(asins);
+
+                    // Construim payload-ul cu datele din cache-ul de produse
+                    const productPayload = products.map(p => {
+                        const d = AppState.getProductDetails(p.asin) || {};
+                        const firstImage = (d.images || []).filter(img => img)[0] || '';
+                        return {
+                            asin: p.asin,
+                            title: d.title || '',
+                            description: (d.description_raw || d.description || '').slice(0, 2000),
+                            imageUrl: firstImage
+                        };
+                    }).filter(p => p.asin && p.title);
+
+                    const res = await fetch(TEMU_RECOMMEND_BULK_URL, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ commandId, products: productPayload })
+                    });
+                    const data = await res.json();
+                    if (!data.success) throw new Error(data.error || 'workflow_failed');
+
+                    if (labelSpan) labelSpan.textContent = `✓ ${data.recommended}/${data.total} recomandate`;
+                    console.log('Temu recommendations:', data.recommendations);
+                    setTimeout(() => {
+                        if (labelSpan) labelSpan.textContent = originalLabel;
+                        menuItem.style.pointerEvents = '';
+                    }, 5000);
+                } catch(e) {
+                    console.error('Temu recommend error:', e);
+                    if (labelSpan) labelSpan.textContent = 'Eroare la recomandare';
+                    setTimeout(() => {
+                        if (labelSpan) labelSpan.textContent = originalLabel;
+                        menuItem.style.pointerEvents = '';
+                    }, 4000);
+                }
+                return;
+            }
+            if (action === 'temu-sync-cats' || action === 'temu-sync-attrs') {
+                const url = action === 'temu-sync-cats' ? TEMU_SYNC_CATS_URL : TEMU_SYNC_ATTRS_URL;
+                const label = action === 'temu-sync-cats' ? 'categorii' : 'atribute';
+                actionButton.disabled = true;
+                actionButton.textContent = `Se sincronizează ${label}...`;
+                try {
+                    const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+                    const data = await res.json();
+                    if (data.success) {
+                        const msg = action === 'temu-sync-cats'
+                            ? `✓ ${data.synced} categorii sincronizate`
+                            : `✓ ${data.categories_synced} categ., ${data.characteristics_synced} caract., ${data.values_synced} valori`;
+                        actionButton.textContent = msg;
+                        setTimeout(() => { actionButton.textContent = `Sync ${label}`; actionButton.disabled = false; }, 4000);
+                    } else {
+                        throw new Error(JSON.stringify(data));
+                    }
+                } catch(e) {
+                    actionButton.textContent = `Eroare sync ${label}`;
+                    actionButton.disabled = false;
+                    console.error('Temu sync error:', e);
+                }
+            }
             if (action === 'save-product') {
                 const success = await handleProductSave(actionButton);
                 if (success) {

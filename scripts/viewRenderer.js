@@ -178,7 +178,10 @@ export async function renderView(viewId, context = {}) {
             galleryContainer.innerHTML = renderImageGallery(state.editedProductData.images);
              initializeSortable();
         }
-        fetchAndRenderCompetition(foundProduct.asin);
-        loadProductAttributesFromDB(foundProduct.asin);
+        // Secvențierea e critică: întâi restaurăm datele salvate (care setează
+        // mappingState.categories), apoi populăm selector-ul eMAG din competiție
+        // care va RESPECTA state-ul deja existent în loc să-l suprascrie.
+        await loadProductAttributesFromDB(foundProduct.asin);
+        await fetchAndRenderCompetition(foundProduct.asin);
     }
 }

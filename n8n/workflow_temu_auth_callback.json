@@ -1,0 +1,77 @@
+{
+  "name": "Temu - OAuth Callback (Get Access Token)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "temu-auth-callback",
+        "responseMode": "lastNode",
+        "options": {
+          "allowedOrigins": "*"
+        }
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [240, 460],
+      "id": "wh-temu-auth",
+      "name": "Webhook Temu Auth Callback",
+      "webhookId": "temu-auth-callback"
+    },
+    {
+      "parameters": {
+        "jsCode": "const crypto = require('crypto');\nconst https = require('https');\n\n// !! Inlocuieste cu valorile reale !!\nconst APP_KEY = 'db98a65eba39bf6886faf56e9249589e';\nconst APP_SECRET = '3896fff8060522f365d380dc03db8a6d57c5fad6';\n\n// code vine din query param: ?code=xxx (redirect de la Temu Seller Center)\nconst code = $input.first().json.query?.code;\n\nif (!code) {\n  throw new Error('No code in callback. Query received: ' + JSON.stringify($input.first().json.query));\n}\n\nconst timestamp = Math.floor(Date.now() / 1000);\n\n// Parametri request (fara sign)\n// Nota: la primul apel, access_token = code (conform documentatiei Temu)\nconst params = {\n  access_token: code,\n  app_key: APP_KEY,\n  code: code,\n  data_type: 'JSON',\n  timestamp: timestamp,\n  type: 'bg.open.accesstoken.create'\n};\n\n// Calcul sign: app_secret + {key1}{val1}{key2}{val2}... (sortat alfabetic) + app_secret -> MD5 uppercase\nconst sortedKeys = Object.keys(params).sort();\nlet signStr = APP_SECRET;\nfor (const key of sortedKeys) {\n  signStr += key + String(params[key]);\n}\nsignStr += APP_SECRET;\n\nconst sign = crypto.createHash('md5').update(signStr).digest('hex').toUpperCase();\n\nconst requestBody = JSON.stringify({ ...params, sign });\n\n// POST catre Temu EU API\nconst temuResponse = await new Promise((resolve, reject) => {\n  const options = {\n    hostname: 'openapi-b-eu.temu.com',\n    path: '/openapi/router',\n    method: 'POST',\n    headers: {\n      'Content-Type': 'application/json',\n      'Content-Length': Buffer.byteLength(requestBody)\n    }\n  };\n  const req = https.request(options, (res) => {\n    let data = '';\n    res.on('data', (chunk) => { data += chunk; });\n    res.on('end', () => {\n      try { resolve(JSON.parse(data)); }\n      catch (e) { resolve({ raw: data }); }\n    });\n  });\n  req.on('error', reject);\n  req.write(requestBody);\n  req.end();\n});\n\nif (!temuResponse.success) {\n  throw new Error('Temu bg.open.accesstoken.create failed: ' + JSON.stringify(temuResponse));\n}\n\nconst { accessToken, mallId, expiredTime } = temuResponse.result;\n\nreturn [{\n  json: {\n    app_key: APP_KEY,\n    access_token: accessToken,\n    mall_id: mallId,\n    expires_at: new Date(expiredTime * 1000).toISOString()\n  }\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 460],
+      "id": "code-exchange-token",
+      "name": "Exchange Code for Token"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO config.temu_credentials (app_key, access_token, mall_id, expires_at, updated_at)\nVALUES ($1, $2, $3, $4::timestamptz, NOW())\nON CONFLICT (app_key) DO UPDATE SET\n  access_token = EXCLUDED.access_token,\n  mall_id      = EXCLUDED.mall_id,\n  expires_at   = EXCLUDED.expires_at,\n  updated_at   = NOW()\nRETURNING id, app_key, mall_id, expires_at;",
+        "options": {
+          "queryReplacement": "={{ $json.app_key }},={{ $json.access_token }},={{ $json.mall_id }},={{ $json.expires_at }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [680, 460],
+      "id": "pg-save-token",
+      "name": "Save Token to DB",
+      "credentials": {
+        "postgres": {
+          "id": "qB83OygmYC4DBr5q",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const row = $input.first().json;\nreturn [{\n  json: {\n    success: true,\n    message: 'Access token saved successfully. Token expires at: ' + row.expires_at,\n    mall_id: row.mall_id\n  }\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 460],
+      "id": "code-response",
+      "name": "Format Response"
+    }
+  ],
+  "connections": {
+    "Webhook Temu Auth Callback": {
+      "main": [[{ "node": "Exchange Code for Token", "type": "main", "index": 0 }]]
+    },
+    "Exchange Code for Token": {
+      "main": [[{ "node": "Save Token to DB", "type": "main", "index": 0 }]]
+    },
+    "Save Token to DB": {
+      "main": [[{ "node": "Format Response", "type": "main", "index": 0 }]]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "1"
+}

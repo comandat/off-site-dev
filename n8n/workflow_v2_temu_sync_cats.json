@@ -1,0 +1,80 @@
+{
+  "name": "Off-Site v2 - Temu Sync Categories",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "v2-temu-sync-cats",
+        "responseMode": "lastNode",
+        "options": { "allowedOrigins": "*" }
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [240, 460],
+      "id": "wh-temu-sync-cats",
+      "name": "Webhook Temu Sync Cats",
+      "webhookId": "v2-temu-sync-cats"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT access_token FROM config.temu_credentials WHERE app_key = 'db98a65eba39bf6886faf56e9249589e' LIMIT 1;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [460, 460],
+      "id": "pg-get-creds",
+      "name": "Get Credentials",
+      "credentials": {
+        "postgres": { "id": "qB83OygmYC4DBr5q", "name": "Postgres account" }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const crypto = require('crypto');\nconst https = require('https');\n\nconst APP_KEY    = 'db98a65eba39bf6886faf56e9249589e';\nconst APP_SECRET = '3896fff8060522f365d380dc03db8a6d57c5fad6';\nconst ACCESS_TOKEN = $input.first().json.access_token;\n\nif (!ACCESS_TOKEN) throw new Error('No access_token in config.temu_credentials');\n\nfunction buildSign(params) {\n  const keys = Object.keys(params).sort();\n  let s = APP_SECRET;\n  for (const k of keys) s += k + String(params[k]);\n  s += APP_SECRET;\n  return crypto.createHash('md5').update(s).digest('hex').toUpperCase();\n}\n\nasync function temuPost(type, reqBody = {}) {\n  const timestamp = String(Math.floor(Date.now() / 1000));\n  const sysParams = { type, app_key: APP_KEY, access_token: ACCESS_TOKEN, timestamp, data_type: 'JSON' };\n  const sign = buildSign(sysParams);\n  const qs = Object.entries({ ...sysParams, sign }).map(([k,v]) => `${k}=${encodeURIComponent(v)}`).join('&');\n  const body = JSON.stringify(Object.keys(reqBody).length ? { request: reqBody } : {});\n\n  return new Promise((resolve, reject) => {\n    const opts = {\n      hostname: 'openapi-b-eu.temu.com',\n      path: `/openapi/router?${qs}`,\n      method: 'POST',\n      headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) }\n    };\n    const req = https.request(opts, res => {\n      let d = '';\n      res.on('data', c => d += c);\n      res.on('end', () => { try { resolve(JSON.parse(d)); } catch(e) { resolve({ raw: d }); } });\n    });\n    req.on('error', reject);\n    req.write(body);\n    req.end();\n  });\n}\n\n// Extrage categorii frunza recursiv din arborele returnat de Temu\nfunction extractLeaves(list, out = []) {\n  for (const cat of (list || [])) {\n    const children = cat.children || cat.childList || cat.child_list || [];\n    const isLeaf = cat.leaf === true || cat.leaf === 1 || !children.length;\n    if (isLeaf) {\n      out.push({\n        category_id: String(cat.catId || cat.cat_id || cat.id),\n        category_name: String(cat.catName || cat.cat_name || cat.name)\n      });\n    } else {\n      extractLeaves(children, out);\n    }\n  }\n  return out;\n}\n\nconst resp = await temuPost('bg.local.goods.cats.get');\n\nif (!resp.success) {\n  throw new Error('bg.local.goods.cats.get failed: ' + JSON.stringify(resp));\n}\n\n// Campul cu lista difera in functie de versiunea API\nconst catList =\n  resp.result?.catList ||\n  resp.result?.cats ||\n  resp.result?.categoryList ||\n  resp.result?.cat_list ||\n  [];\n\nif (!catList.length) {\n  throw new Error('Empty category list from Temu. Full response: ' + JSON.stringify(resp.result));\n}\n\nconst leaves = extractLeaves(catList);\n\nif (!leaves.length) {\n  throw new Error('No leaf categories found. catList sample: ' + JSON.stringify(catList.slice(0, 2)));\n}\n\n// Returnam o singura inregistrare cu array-ul JSON pentru upsert bulk eficient\nreturn [{ json: { categories: JSON.stringify(leaves), count: leaves.length } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [680, 460],
+      "id": "code-fetch-cats",
+      "name": "Fetch Categories from Temu API"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH upserted AS (\n  INSERT INTO catalogs.categories (marketplace, category_id, category_name, is_active, last_synced_at)\n  SELECT 'temu_ro', c->>'category_id', c->>'category_name', true, NOW()\n  FROM jsonb_array_elements($1::jsonb) AS c\n  ON CONFLICT (marketplace, category_id) DO UPDATE SET\n    category_name  = EXCLUDED.category_name,\n    is_active      = true,\n    last_synced_at = NOW()\n  RETURNING 1\n)\nSELECT COUNT(*)::int AS synced_count FROM upserted;",
+        "options": {
+          "queryReplacement": "={{ $json.categories }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [900, 460],
+      "id": "pg-upsert-cats",
+      "name": "Bulk Upsert Categories",
+      "credentials": {
+        "postgres": { "id": "qB83OygmYC4DBr5q", "name": "Postgres account" }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const syncedCount = $input.first().json.synced_count || 0;\nreturn [{ json: { success: true, synced: syncedCount, marketplace: 'temu_ro' } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1120, 460],
+      "id": "code-response-cats",
+      "name": "Format Response"
+    }
+  ],
+  "connections": {
+    "Webhook Temu Sync Cats":        { "main": [[{ "node": "Get Credentials",              "type": "main", "index": 0 }]] },
+    "Get Credentials":               { "main": [[{ "node": "Fetch Categories from Temu API", "type": "main", "index": 0 }]] },
+    "Fetch Categories from Temu API":{ "main": [[{ "node": "Bulk Upsert Categories",          "type": "main", "index": 0 }]] },
+    "Bulk Upsert Categories":        { "main": [[{ "node": "Format Response",                 "type": "main", "index": 0 }]] }
+  },
+  "active": false,
+  "settings": { "executionOrder": "v1" },
+  "versionId": "1"
+}
