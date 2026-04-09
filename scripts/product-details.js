@@ -571,17 +571,39 @@ export function populateCategorySelector() {
     categories.sort((a, b) => (b.count || 0) - (a.count || 0));
     const selector = document.getElementById('category-selector-emag');
     if (!selector) return;
-    if (categories.length === 0) {
+
+    const savedEmagId = mappingState.categories.emag;
+
+    if (categories.length === 0 && !savedEmagId) {
         selector.innerHTML = '<option value="">Nu există categorii disponibile</option>';
         return;
     }
-    selector.innerHTML = categories.map((cat, i) => {
+
+    // Dacă avem o categorie deja încărcată din DB și nu apare în suggestions,
+    // păstrăm opțiunea ei (cu numele deja setat în selector, dacă există).
+    if (savedEmagId && !categories.find(c => String(c.id) === String(savedEmagId))) {
+        const existingOpt = selector.querySelector(`option[value="${savedEmagId}"]`);
+        const savedName = (existingOpt?.dataset?.name || existingOpt?.textContent || '').trim()
+            || `Categorie ${savedEmagId}`;
+        categories.unshift({ id: savedEmagId, name: savedName });
+    }
+
+    selector.innerHTML = categories.map(cat => {
         const safeName = String(cat.name || '').replace(/"/g, '&quot;');
-        return `<option value="${cat.id}" data-name="${safeName}"${i === 0 ? ' selected' : ''}>${safeName}</option>`;
+        const isSelected = savedEmagId
+            ? String(cat.id) === String(savedEmagId)
+            : cat === categories[0];
+        return `<option value="${cat.id}" data-name="${safeName}"${isSelected ? ' selected' : ''}>${safeName}</option>`;
     }).join('');
-    // Triggerează încărcarea atributelor pentru prima categorie din eMAG
-    // dar numai dacă nu există deja date din DB (loadProductAttributesFromDB face asta)
-    if (!mappingState.categories.emag) {
+
+    // Sincronizăm selector-ul pe categoria activă explicit (fallback)
+    if (savedEmagId) {
+        selector.value = String(savedEmagId);
+    }
+
+    // Dacă n-aveam deja o categorie salvată din DB, inițializăm cu prima sugestie —
+    // asta va declanșa și lookup-ul de mapări pe Trendyol/Temu prin handleCategoryChange.
+    if (!savedEmagId) {
         handleCategoryChange('emag', String(categories[0].id));
     }
 }
@@ -604,6 +626,20 @@ export async function handleCategoryChange(platform, categoryId) {
     // 3. Actualizează categoria (cu ID-ul original) și șterge liniile de pe ecran
     mappingState.categories[platform] = categoryId;
     clearAllConnections();
+
+    // Defensiv: dacă selector-ul nu e deja pe categoryId (ex: apel programmatic),
+    // îl sincronizăm și adăugăm opțiunea dacă lipsește.
+    const selectorSync = document.getElementById(`category-selector-${platform}`);
+    if (selectorSync && String(selectorSync.value) !== String(categoryId)) {
+        if (!selectorSync.querySelector(`option[value="${categoryId}"]`)) {
+            const opt = document.createElement('option');
+            opt.value = String(categoryId);
+            opt.textContent = `Categorie ${categoryId}`;
+            opt.dataset.name = `Categorie ${categoryId}`;
+            selectorSync.appendChild(opt);
+        }
+        selectorSync.value = String(categoryId);
+    }
 
     const el = document.getElementById(`${platform}-attributes`);
     if (el) el.innerHTML = '<p class="text-xs text-gray-400 italic">Se încarcă...</p>';
@@ -658,10 +694,25 @@ async function applyCategoryMappings(emagCategoryId) {
         for (const targetPlatform of ['trendyol', 'temu']) {
             const list = Array.isArray(mappings[targetPlatform]) ? mappings[targetPlatform] : [];
             if (!list.length) continue;
-            populateMappedCategoryDropdown(targetPlatform, list);
-            const best = list.find(m => m.isBest) || list[0];
-            if (best && best.categoryId) {
-                await handleCategoryChange(targetPlatform, String(best.categoryId));
+
+            // Dacă există deja o categorie setată pentru acea platformă (ex: user-ul a salvat
+            // ceva pentru produs), preferăm să o păstrăm selectată în loc să o suprascriem cu cea auto.
+            const existingId = mappingState.categories[targetPlatform];
+            const listHasExisting = existingId && list.some(m => String(m.categoryId) === String(existingId));
+            const targetId = listHasExisting ? String(existingId) : null;
+
+            populateMappedCategoryDropdown(targetPlatform, list, targetId);
+
+            // Dacă user-ul nu avea deja o categorie salvată, aplicăm recomandarea "best"
+            if (!listHasExisting) {
+                const best = list.find(m => m.isBest) || list[0];
+                if (best && best.categoryId) {
+                    await handleCategoryChange(targetPlatform, String(best.categoryId));
+                }
+            } else {
+                // Altfel, doar ne asigurăm că selector-ul arată categoria deja activă
+                const selector = document.getElementById(`category-selector-${targetPlatform}`);
+                if (selector) selector.value = String(existingId);
             }
         }
     } catch (err) {
@@ -669,16 +720,20 @@ async function applyCategoryMappings(emagCategoryId) {
     }
 }
 
-function populateMappedCategoryDropdown(platform, list) {
+function populateMappedCategoryDropdown(platform, list, selectedId = null) {
     const selector = document.getElementById(`category-selector-${platform}`);
     if (!selector) return;
+    const best = list.find(m => m.isBest) || list[0];
+    const targetId = selectedId != null ? String(selectedId) : (best ? String(best.categoryId) : '');
     const emptyOpt = '<option value="">Selectați o categorie...</option>';
     const opts = list.map(m => {
         const badge = m.confidence === 'manual' ? ' ✓' : '';
         const name = (m.categoryName || ('Categorie ' + m.categoryId)).replace(/"/g, '&quot;');
-        return `<option value="${m.categoryId}">${name}${badge}</option>`;
+        const isSel = String(m.categoryId) === targetId ? ' selected' : '';
+        return `<option value="${m.categoryId}" data-name="${name}"${isSel}>${name}${badge}</option>`;
     }).join('');
     selector.innerHTML = emptyOpt + opts;
+    if (targetId) selector.value = targetId;
 }
 
 async function fetchAndRenderAttributes(platform, categoryId) {
@@ -1151,6 +1206,24 @@ async function saveAttributesToDB(asin) {
 }
 
 export async function loadProductAttributesFromDB(asin) {
+    // CRITICAL: mappingState e la nivel de modul, nu per-produs. Trebuie resetat
+    // complet la începutul fiecărei încărcări de produs altfel datele produsului
+    // anterior rămân în memorie și contaminează produsul curent. Scenariu clasic:
+    // Produs A salvat cu Temu=500, apoi deschis Produs B care NU are Temu salvat;
+    // fără reset, categories.temu rămâne 500 din A și la save-ul lui B se trimite
+    // accidental Temu=500 deși user-ul nu a ales nimic pe Temu pentru B.
+    mappingState.connections = [];
+    mappingState.dragging = null;
+    mappingState.categories = { emag: null, trendyol: null, temu: null };
+    mappingState.savedValues = { emag: {}, trendyol: {}, temu: {} };
+    mappingState.savedConnections = {};
+    mappingState.savedMappings = [];
+    mappingState.searchTimers = {};
+    mappingState._suppressEmagMappingLookup = false;
+    // Și curățăm SVG-ul de conexiuni din renderul anterior (dacă a mai rămas ceva)
+    const svgEl = document.getElementById('connections-svg');
+    if (svgEl) svgEl.innerHTML = '';
+
     try {
         const res = await fetch(GET_PRODUCT_ATTRIBUTES_URL, {
             method: 'POST',
@@ -1179,11 +1252,14 @@ export async function loadProductAttributesFromDB(asin) {
                 mappingState.categories[platform] = platformData.categoryId;
                 const selector = document.getElementById(`category-selector-${platform}`);
                 if (selector) {
+                    const catName = platformData.categoryName || `Categorie ${platformData.categoryId}`;
                     // Adaugă opțiunea dacă nu există deja
-                    if (!selector.querySelector(`option[value="${platformData.categoryId}"]`)) {
-                        const opt = document.createElement('option');
+                    let opt = selector.querySelector(`option[value="${platformData.categoryId}"]`);
+                    if (!opt) {
+                        opt = document.createElement('option');
                         opt.value = platformData.categoryId;
-                        opt.textContent = `Categorie ${platformData.categoryId}`;
+                        opt.textContent = catName;
+                        opt.dataset.name = catName;
                         selector.appendChild(opt);
                     }
                     selector.value = platformData.categoryId;
@@ -1201,6 +1277,15 @@ export async function loadProductAttributesFromDB(asin) {
             }
         } finally {
             mappingState._suppressEmagMappingLookup = false;
+        }
+
+        // După restaurare: dacă produsul are eMAG salvat dar NU are Trendyol sau Temu,
+        // declanșăm lookup-ul de mapări ca să pre-populăm dropdown-urile de pe celelalte
+        // platforme (feature cerut explicit: auto-mapping pe baza eMAG la page load).
+        const emagId = listingData.emag?.categoryId;
+        const missingTarget = emagId && (!listingData.trendyol?.categoryId || !listingData.temu?.categoryId);
+        if (missingTarget) {
+            await applyCategoryMappings(String(emagId));
         }
     } catch (err) {
         console.error('Eroare la încărcarea atributelor:', err);
@@ -1325,6 +1410,7 @@ export async function handleAiFillAttributes(button) {
     }
 
     let anySuccess = false;
+    const workflowErrors = [];
     try {
         for (const platform of platforms) {
             const categoryId = mappingState.categories[platform];
@@ -1334,8 +1420,15 @@ export async function handleAiFillAttributes(button) {
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ asin, platform, categoryId, title, description, images })
                 });
-                if (!res.ok) continue;
+                if (!res.ok) {
+                    workflowErrors.push(`${platform}: HTTP ${res.status}`);
+                    continue;
+                }
                 const data = await res.json();
+                // Workflow-ul poate returna un _error chiar cu HTTP 200 (ex: Gemini key lipsă)
+                if (data?._error) {
+                    workflowErrors.push(`${platform}: ${data._error}`);
+                }
                 const filled = data?.attributes?.[platform] || {};
                 let filledCount = 0;
                 Object.entries(filled).forEach(([attrId, value]) => {
@@ -1352,10 +1445,14 @@ export async function handleAiFillAttributes(button) {
                 if (filledCount > 0) anySuccess = true;
             } catch (innerErr) {
                 console.error(`Eroare AI fill pentru ${platform}:`, innerErr);
+                workflowErrors.push(`${platform}: ${innerErr.message || innerErr}`);
             }
         }
         if (!anySuccess) {
-            alert('Nu s-a completat nicio caracteristică. Verifică webhook-ul n8n (v2-ai-fill-attributes) și GEMINI_API_KEY.');
+            const detail = workflowErrors.length
+                ? '\n\nDetalii:\n' + workflowErrors.join('\n')
+                : '';
+            alert('Nu s-a completat nicio caracteristică. Verifică webhook-ul n8n (v2-ai-fill-attributes) și GEMINI_API_KEY.' + detail);
         }
     } catch (err) {
         console.error('Eroare la completare AI:', err);

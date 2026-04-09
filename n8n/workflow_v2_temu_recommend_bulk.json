@@ -1,0 +1,51 @@
+{
+  "name": "Off-Site v2 - Temu Recommend Bulk",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "v2-temu-recommend-bulk",
+        "responseMode": "lastNode",
+        "options": { "allowedOrigins": "*" }
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [240, 460],
+      "id": "wh-temu-recommend-bulk",
+      "name": "Webhook Temu Recommend Bulk",
+      "webhookId": "v2-temu-recommend-bulk"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT tc.access_token,\n       (SELECT array_to_json(array_agg(json_build_object('category_id', category_id, 'category_name', category_name)))\n          FROM catalogs.categories\n         WHERE marketplace = 'temu_ro' AND is_active = true) AS categories\nFROM config.temu_credentials tc\nWHERE tc.app_key = 'db98a65eba39bf6886faf56e9249589e'\nLIMIT 1;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [460, 460],
+      "id": "pg-get-creds-recommend",
+      "name": "Get Credentials + Category Lookup",
+      "credentials": {
+        "postgres": { "id": "qB83OygmYC4DBr5q", "name": "Postgres account" }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const crypto = require('crypto');\nconst https  = require('https');\n\nconst APP_KEY    = 'db98a65eba39bf6886faf56e9249589e';\nconst APP_SECRET = '3896fff8060522f365d380dc03db8a6d57c5fad6';\n\nconst creds = $input.first().json;\nconst ACCESS_TOKEN = creds.access_token;\nif (!ACCESS_TOKEN) throw new Error('No access_token in config.temu_credentials');\n\n// Construim un lookup category_id → category_name pentru numele prietenos\nlet catalogCats = creds.categories;\nif (typeof catalogCats === 'string') {\n  try { catalogCats = JSON.parse(catalogCats); } catch(e) { catalogCats = []; }\n}\nconst catNameById = {};\nfor (const c of (catalogCats || [])) {\n  catNameById[String(c.category_id)] = c.category_name;\n}\n\n// Body-ul webhook-ului: {products: [{asin, title, description?, imageUrl}]}\nconst body = $('Webhook Temu Recommend Bulk').first().json.body || {};\nconst products = Array.isArray(body.products) ? body.products : [];\n\nif (!products.length) {\n  return [{ json: { success: false, error: 'no_products', recommendations: [] } }];\n}\n\nfunction buildSign(params) {\n  const keys = Object.keys(params).sort();\n  let s = APP_SECRET;\n  for (const k of keys) s += k + String(params[k]);\n  s += APP_SECRET;\n  return crypto.createHash('md5').update(s).digest('hex').toUpperCase();\n}\n\nasync function temuPost(type, reqBody = {}) {\n  const timestamp = String(Math.floor(Date.now() / 1000));\n  const sysParams = { type, app_key: APP_KEY, access_token: ACCESS_TOKEN, timestamp, data_type: 'JSON' };\n  const sign = buildSign(sysParams);\n  const qs = Object.entries({ ...sysParams, sign }).map(([k,v]) => `${k}=${encodeURIComponent(v)}`).join('&');\n  const payload = JSON.stringify(Object.keys(reqBody).length ? { request: reqBody } : {});\n\n  return new Promise((resolve, reject) => {\n    const opts = {\n      hostname: 'openapi-b-eu.temu.com',\n      path: `/openapi/router?${qs}`,\n      method: 'POST',\n      headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) }\n    };\n    const req = https.request(opts, res => {\n      let d = '';\n      res.on('data', c => d += c);\n      res.on('end', () => { try { resolve(JSON.parse(d)); } catch(e) { resolve({ raw: d }); } });\n    });\n    req.on('error', reject);\n    req.write(payload);\n    req.end();\n  });\n}\n\nconst recommendations = [];\nlet okCount = 0;\nlet errCount = 0;\n\nfor (const p of products) {\n  const asin = String(p.asin || '').trim();\n  const title = String(p.title || '').trim();\n  const description = String(p.description || p.title || '').trim();\n  const imageUrl = String(p.imageUrl || '').trim();\n\n  if (!asin || !title) {\n    recommendations.push({ asin, success: false, error: 'missing_asin_or_title' });\n    errCount++;\n    continue;\n  }\n\n  try {\n    const resp = await temuPost('bg.local.goods.category.recommend', {\n      goodsName: title,\n      description,\n      imageUrl\n    });\n\n    if (!resp.success) {\n      recommendations.push({\n        asin,\n        success: false,\n        error: resp.errorMsg || resp.error_msg || 'temu_api_error',\n        raw: resp.errorCode || resp.error_code || null\n      });\n      errCount++;\n    } else {\n      const r = resp.result || {};\n      const catId = r.catId || r.cat_id || (Array.isArray(r.catIdList) ? r.catIdList[0] : null);\n      if (!catId) {\n        recommendations.push({ asin, success: false, error: 'no_category_returned' });\n        errCount++;\n      } else {\n        const catIdStr = String(catId);\n        const catName = catNameById[catIdStr] || ('Categorie ' + catIdStr);\n        recommendations.push({\n          asin,\n          success: true,\n          categoryId: catIdStr,\n          categoryName: catName,\n          candidates: (r.catIdList || []).map(String)\n        });\n        okCount++;\n      }\n    }\n  } catch(e) {\n    recommendations.push({ asin, success: false, error: String(e.message || e) });\n    errCount++;\n  }\n\n  // Rate limit: ~5 RPS\n  await new Promise(r => setTimeout(r, 200));\n}\n\nreturn [{ json: {\n  success: true,\n  total: products.length,\n  recommended: okCount,\n  failed: errCount,\n  recommendations\n} }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [680, 460],
+      "id": "code-recommend-bulk",
+      "name": "Recommend Categories"
+    }
+  ],
+  "connections": {
+    "Webhook Temu Recommend Bulk":    { "main": [[{ "node": "Get Credentials + Category Lookup", "type": "main", "index": 0 }]] },
+    "Get Credentials + Category Lookup": { "main": [[{ "node": "Recommend Categories",           "type": "main", "index": 0 }]] }
+  },
+  "active": false,
+  "settings": { "executionOrder": "v1" },
+  "versionId": "1"
+}

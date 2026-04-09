@@ -1,0 +1,97 @@
+{
+  "name": "Off-Site v2 - AI Map Value",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "v2-ai-map-value",
+        "responseMode": "lastNode",
+        "options": {
+          "allowedOrigins": "*"
+        }
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [240, 460],
+      "id": "wh-ai-map",
+      "name": "Webhook AI Map Value",
+      "webhookId": "v2-ai-map-value"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Validează input-ul și mapează platform → marketplace\nconst body = $input.first().json.body || {};\nconst sourcePlatform = (body.sourcePlatform || '').toLowerCase();\nconst targetPlatform = (body.targetPlatform || '').toLowerCase();\nconst platformMap = {\n  'emag': 'emag_ro',\n  'trendyol': 'trendyol_ro',\n  'temu': 'temu_ro'\n};\nconst targetMarketplace = platformMap[targetPlatform] || (targetPlatform + '_ro');\nconst targetCategoryId = String(body.targetCategoryId || '').trim();\nconst targetAttrId = String(body.targetAttrId || '').trim();\nconst sourceAttrName = String(body.sourceAttrName || '').trim();\nconst sourceValue = String(body.sourceValue || '').trim();\nconst productTitle = String(body.productTitle || '').slice(0, 200);\n\nif (!targetCategoryId || !targetAttrId || !sourceValue) {\n  return [{ json: { _error: 'missing required fields', value: null, _skipQuery: true } }];\n}\n\nreturn [{ json: { sourcePlatform, targetPlatform, targetMarketplace, targetCategoryId, targetAttrId, sourceAttrName, sourceValue, productTitle } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 460],
+      "id": "code-prepare-map",
+      "name": "Prepare Input"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT c.characteristic_name, c.allows_custom, COALESCE( (SELECT json_agg(v) FROM ( SELECT cv.value_name AS name FROM catalogs.characteristic_values cv WHERE cv.marketplace = c.marketplace AND cv.characteristic_id = c.characteristic_id AND cv.is_active = true ORDER BY cv.value_name LIMIT 100 ) v), '[]'::json ) AS attr_values FROM catalogs.characteristics c WHERE c.marketplace = $1 AND c.category_id = $2 AND c.characteristic_id = $3::INTEGER AND c.is_active = true LIMIT 1;",
+        "options": {
+          "queryReplacement": "={{ $json.targetMarketplace }},={{ $json.targetCategoryId }},={{ $json.targetAttrId }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [680, 460],
+      "id": "pg-fetch-target-attr",
+      "name": "Fetch Target Attribute",
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "qB83OygmYC4DBr5q",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const https = require('https');\n\n// ─── CONFIGURARE API ────────────────────────────────────────────────────────\nconst GEMINI_API_KEY = 'PUNE_GEMINI_API_KEY_AICI';\nconst MODEL_PRIMARY  = 'gemini-3.1-flash-lite-preview';\nconst MODEL_FALLBACK = 'gemini-flash-latest';\n// ────────────────────────────────────────────────────────────────────────────\n\nfunction httpsRequest(options, postBody) {\n  return new Promise((resolve, reject) => {\n    const req = https.request(options, res => {\n      const chunks = [];\n      res.on('data', c => chunks.push(c));\n      res.on('end', () => resolve({ status: res.statusCode, body: Buffer.concat(chunks) }));\n    });\n    req.on('error', reject);\n    if (postBody) req.write(postBody);\n    req.end();\n  });\n}\n\nasync function callGemini(model, reqBodyStr) {\n  const res = await httpsRequest({\n    hostname: 'generativelanguage.googleapis.com',\n    path: `/v1beta/models/${model}:generateContent?key=${GEMINI_API_KEY}`,\n    method: 'POST',\n    headers: {\n      'Content-Type': 'application/json',\n      'Content-Length': Buffer.byteLength(reqBodyStr)\n    }\n  }, reqBodyStr);\n  if (res.status >= 500) throw new Error(`HTTP ${res.status} from Gemini`);\n  return res;\n}\n\nconst prep = $('Prepare Input').first().json;\nif (prep._skipQuery) {\n  return [{ json: { value: null, _error: prep._error } }];\n}\n\nconst { sourceAttrName, sourceValue, productTitle } = prep;\nconst rows = $input.all().map(i => i.json).filter(r => r && r.characteristic_name != null);\n\nif (!rows.length) {\n  return [{ json: { value: null, _error: 'target attribute not found' } }];\n}\n\nconst targetRow = rows[0];\nconst targetAttrName = targetRow.characteristic_name;\nconst allowsCustom = targetRow.allows_custom === true;\nlet values = targetRow.attr_values || [];\nif (typeof values === 'string') { try { values = JSON.parse(values); } catch(e) { values = []; } }\nconst valueNames = values.map(v => v && v.name).filter(Boolean);\n\nconst systemInstruction = `Mapează o valoare de atribut de pe un marketplace pe altul. Returnează DOAR JSON valid: {\"value\": \"<string>\"} sau {\"value\": null}.\\n\\nReguli:\\n1. Dacă există un match semantic în lista de valori valide, returnează EXACT acea valoare (string identic).\\n2. Dacă NU există match ȘI allowsCustom=true, returnează o valoare custom scurtă (1-3 cuvinte) bazată pe valoarea sursă.\\n3. Dacă NU există match ȘI allowsCustom=false, returnează {\"value\": null}.\\n4. NU returna explicații, doar JSON.`;\n\nconst userText = `Atribut sursă: ${sourceAttrName}\\nValoare sursă: ${sourceValue}\\n\\nAtribut țintă: ${targetAttrName}\\nValori valide pentru țintă: ${JSON.stringify(valueNames)}\\nPermite valori custom: ${allowsCustom}\\n\\nContext produs: ${productTitle}`;\n\nconst reqBody = {\n  systemInstruction: { parts: [{ text: systemInstruction }] },\n  contents: [{ role: 'user', parts: [{ text: userText }] }],\n  generationConfig: {\n    temperature: 0.1,\n    responseMimeType: 'application/json',\n    responseSchema: {\n      type: 'object',\n      properties: { value: { type: 'string', nullable: true } },\n      required: ['value']\n    }\n  }\n};\n\nconst reqBodyStr = JSON.stringify(reqBody);\nlet geminiResponse;\ntry {\n  geminiResponse = await callGemini(MODEL_PRIMARY, reqBodyStr);\n} catch (err) {\n  try {\n    geminiResponse = await callGemini(MODEL_FALLBACK, reqBodyStr);\n  } catch (err2) {\n    return [{ json: { value: null, _error: 'gemini failed: ' + err2.message } }];\n  }\n}\n\ntry {\n  const parsed = JSON.parse(geminiResponse.body.toString('utf8'));\n  const text = parsed?.candidates?.[0]?.content?.parts?.[0]?.text;\n  if (text) {\n    const json = JSON.parse(text);\n    const out = json && typeof json.value === 'string' ? json.value : null;\n    return [{ json: { value: out } }];\n  }\n} catch (e) {\n  return [{ json: { value: null, _error: 'parse failed: ' + e.message } }];\n}\n\nreturn [{ json: { value: null } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 460],
+      "id": "code-gemini-map",
+      "name": "Call Gemini Map"
+    }
+  ],
+  "connections": {
+    "Webhook AI Map Value": {
+      "main": [
+        [
+          {
+            "node": "Prepare Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Input": {
+      "main": [
+        [
+          {
+            "node": "Fetch Target Attribute",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Target Attribute": {
+      "main": [
+        [
+          {
+            "node": "Call Gemini Map",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}

@@ -1,0 +1,97 @@
+{
+  "name": "Off-Site v2 - Category Mappings",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "v2-category-mappings",
+        "responseMode": "lastNode",
+        "options": {
+          "allowedOrigins": "*"
+        }
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [240, 460],
+      "id": "wh-cat-mappings",
+      "name": "Webhook Category Mappings",
+      "webhookId": "v2-category-mappings"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Mapează platforma sursă la marketplace-ul canonic și validează input-ul\nconst body = $input.first().json.body || {};\nconst sourcePlatform = (body.sourcePlatform || 'emag').toLowerCase();\nconst platformMap = {\n  'emag': 'emag_ro',\n  'trendyol': 'trendyol_ro',\n  'temu': 'temu_ro'\n};\nconst sourceMarketplace = platformMap[sourcePlatform] || (sourcePlatform + '_ro');\nconst sourceCategoryId = String(body.sourceCategoryId || '').trim();\n\nif (!sourceCategoryId) {\n  return [{ json: { _error: true, mappings: { trendyol: [], temu: [] } } }];\n}\n\nreturn [{ json: { sourceMarketplace, sourceCategoryId } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 460],
+      "id": "code-prepare-mappings",
+      "name": "Prepare Query"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT target_marketplace, target_category_id, target_category_name, confidence, usage_count, confirmed_by FROM mappings.categories WHERE source_marketplace = $1 AND source_category_id = $2 AND is_orphaned = false AND target_marketplace IN ('trendyol_ro', 'temu_ro') ORDER BY target_marketplace, CASE WHEN confidence = 'manual' THEN 0 WHEN confidence = 'auto' THEN 1 ELSE 2 END, COALESCE(usage_count, 0) DESC;",
+        "options": {
+          "queryReplacement": "={{ $json.sourceMarketplace }},={{ $json.sourceCategoryId }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [680, 460],
+      "id": "pg-cat-mappings",
+      "name": "Query Mappings",
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "qB83OygmYC4DBr5q",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Grupează rezultatele pe platformă target și marchează best per grup\nconst rows = $input.all().map(item => item.json);\nconst marketplaceToPlatform = {\n  'trendyol_ro': 'trendyol',\n  'temu_ro': 'temu'\n};\n\nconst result = { trendyol: [], temu: [] };\n\nfor (const row of rows) {\n  if (!row || !row.target_marketplace || !row.target_category_id) continue;\n  const platform = marketplaceToPlatform[row.target_marketplace];\n  if (!platform) continue;\n  result[platform].push({\n    categoryId: String(row.target_category_id),\n    categoryName: row.target_category_name || ('Categorie ' + row.target_category_id),\n    confidence: row.confidence || 'auto',\n    usageCount: row.usage_count || 0,\n    confirmedBy: row.confirmed_by || null,\n    isBest: false\n  });\n}\n\n// Primul item în fiecare grup e cel mai bun (deja sortat de SQL)\nfor (const platform of ['trendyol', 'temu']) {\n  if (result[platform].length > 0) {\n    result[platform][0].isBest = true;\n  }\n}\n\nreturn [{ json: { mappings: result } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 460],
+      "id": "code-format-mappings",
+      "name": "Format Response"
+    }
+  ],
+  "connections": {
+    "Webhook Category Mappings": {
+      "main": [
+        [
+          {
+            "node": "Prepare Query",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Query": {
+      "main": [
+        [
+          {
+            "node": "Query Mappings",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Query Mappings": {
+      "main": [
+        [
+          {
+            "node": "Format Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}

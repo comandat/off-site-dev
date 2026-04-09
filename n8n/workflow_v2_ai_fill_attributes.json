@@ -1,0 +1,97 @@
+{
+  "name": "Off-Site v2 - AI Fill Attributes",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "v2-ai-fill-attributes",
+        "responseMode": "lastNode",
+        "options": {
+          "allowedOrigins": "*"
+        }
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [240, 460],
+      "id": "wh-ai-fill",
+      "name": "Webhook AI Fill",
+      "webhookId": "v2-ai-fill-attributes"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Validează input-ul și mapează platform → marketplace\nconst body = $input.first().json.body || {};\nconst platform = (body.platform || 'emag').toLowerCase();\nconst platformMap = {\n  'emag': 'emag_ro',\n  'trendyol': 'trendyol_ro',\n  'temu': 'temu_ro'\n};\nconst marketplace = platformMap[platform] || (platform + '_ro');\nconst categoryId = String(body.categoryId || '').trim();\nconst asin = String(body.asin || '').trim();\n\n// Trunchiază descrierea (strip HTML) la ~800 chars\nfunction stripHtml(s) { return String(s || '').replace(/<[^>]*>/g, ' ').replace(/\\s+/g, ' ').trim(); }\nconst title = stripHtml(body.title).slice(0, 300);\nconst description = stripHtml(body.description).slice(0, 800);\nconst images = Array.isArray(body.images) ? body.images.slice(0, 3) : [];\n\nif (!categoryId) {\n  return [{ json: { _error: 'missing categoryId', attributes: { [platform]: {} } } }];\n}\n\nreturn [{ json: { marketplace, categoryId, asin, platform, title, description, images } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 460],
+      "id": "code-prepare-ai-fill",
+      "name": "Prepare Input"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT c.characteristic_id, c.characteristic_name, c.is_mandatory, c.type_id, c.allows_custom, COALESCE( (SELECT json_agg(v) FROM ( SELECT cv.value_name AS name FROM catalogs.characteristic_values cv WHERE cv.marketplace = c.marketplace AND cv.characteristic_id = c.characteristic_id AND cv.is_active = true ORDER BY cv.value_name LIMIT 50 ) v), '[]'::json ) AS attr_values FROM catalogs.characteristics c WHERE c.marketplace = $1 AND c.category_id = $2 AND c.is_active = true ORDER BY c.is_mandatory DESC, c.characteristic_name;",
+        "options": {
+          "queryReplacement": "={{ $json.marketplace }},={{ $json.categoryId }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [680, 460],
+      "id": "pg-fetch-chars",
+      "name": "Fetch Characteristics",
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "qB83OygmYC4DBr5q",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const https = require('https');\nconst http = require('http');\nconst { URL } = require('url');\n\n// ─── CONFIGURARE API ────────────────────────────────────────────────────────\n// Cheia Gemini: citită DIN env var (setează GEMINI_API_KEY în config-ul n8n,\n// ex: ~/.n8n/.env sau variables în Docker). Fallback hardcodat DOAR pentru debug local.\nconst GEMINI_API_KEY = process.env.GEMINI_API_KEY || 'PUNE_GEMINI_API_KEY_AICI';\nconst MODEL_PRIMARY  = 'gemini-3.1-flash-lite-preview';\nconst MODEL_FALLBACK = 'gemini-flash-latest';\n// ────────────────────────────────────────────────────────────────────────────\n\nif (!GEMINI_API_KEY || GEMINI_API_KEY === 'PUNE_GEMINI_API_KEY_AICI') {\n  const prep = $('Prepare Input').first().json;\n  return [{ json: {\n    _error: 'GEMINI_API_KEY missing. Set it in n8n env (process.env.GEMINI_API_KEY) or replace the placeholder in the Call Gemini Code node.',\n    attributes: { [prep.platform || 'emag']: {} }\n  } }];\n}\n\nfunction httpsRequest(options, postBody) {\n  return new Promise((resolve, reject) => {\n    const lib = options.protocol === 'http:' ? http : https;\n    const req = lib.request(options, res => {\n      const chunks = [];\n      res.on('data', c => chunks.push(c));\n      res.on('end', () => resolve({ status: res.statusCode, headers: res.headers, body: Buffer.concat(chunks) }));\n    });\n    req.on('error', reject);\n    if (postBody) req.write(postBody);\n    req.end();\n  });\n}\n\nfunction fetchImageBase64(url) {\n  return new Promise(async (resolve) => {\n    try {\n      const u = new URL(url);\n      const res = await httpsRequest({\n        protocol: u.protocol,\n        hostname: u.hostname,\n        path: u.pathname + (u.search || ''),\n        method: 'GET',\n        headers: { 'User-Agent': 'Mozilla/5.0 off-site-dev' }\n      });\n      if (res.status !== 200) return resolve(null);\n      const contentType = (res.headers['content-type'] || 'image/jpeg').split(';')[0].trim();\n      if (!contentType.startsWith('image/')) return resolve(null);\n      resolve({ mimeType: contentType, data: res.body.toString('base64') });\n    } catch (e) { resolve(null); }\n  });\n}\n\nasync function callGemini(model, reqBodyStr) {\n  const res = await httpsRequest({\n    hostname: 'generativelanguage.googleapis.com',\n    path: `/v1beta/models/${model}:generateContent?key=${GEMINI_API_KEY}`,\n    method: 'POST',\n    headers: {\n      'Content-Type': 'application/json',\n      'Content-Length': Buffer.byteLength(reqBodyStr)\n    }\n  }, reqBodyStr);\n  // Orice non-2xx e eroare (inclusiv 401 pe cheie invalidă și 400 pe model inexistent).\n  // Înainte treceam peste 4xx silențios ceea ce făcea ca output-ul să fie gol fără nicio indicație.\n  if (res.status < 200 || res.status >= 300) {\n    const snippet = res.body.toString('utf8').slice(0, 500);\n    throw new Error(`HTTP ${res.status} from Gemini (${model}): ${snippet}`);\n  }\n  return res;\n}\n\nconst prep = $('Prepare Input').first().json;\nconst { platform, title, description, images } = prep;\n\nconst rows = $input.all().map(i => i.json).filter(r => r && r.characteristic_id != null);\nif (!rows.length) {\n  return [{ json: { attributes: { [platform]: {} } } }];\n}\n\nconst chars = rows.map(row => {\n  let values = row.attr_values || [];\n  if (typeof values === 'string') { try { values = JSON.parse(values); } catch(e) { values = []; } }\n  const names = values.map(v => v && v.name).filter(Boolean);\n  return {\n    id: String(row.characteristic_id),\n    name: row.characteristic_name,\n    required: row.is_mandatory === true,\n    allowsCustom: row.allows_custom === true,\n    values: names\n  };\n});\n\nconst systemInstruction = `Ești un asistent de completare atribute pentru produse e-commerce. Primești titlul, descrierea și imaginile unui produs, plus o listă de caracteristici care trebuie completate pentru o categorie de marketplace.\n\nReguli stricte:\n1. Pentru fiecare caracteristică din listă, încearcă să extragi valoarea din titlu, descriere sau imagini.\n2. Dacă caracteristica are \"values\" non-gol (listă de valori predefinite), alege EXACT o valoare din acea listă (match semantic, nu literal).\n3. Dacă NU există match bun în \"values\" ȘI allowsCustom=true, poți returna o valoare custom (scurt, 1-3 cuvinte).\n4. Dacă NU există match ȘI allowsCustom=false, NU include caracteristica în output.\n5. Dacă NU poți deduce o valoare (informație lipsă), NU include caracteristica.\n6. Returnează DOAR JSON valid în formatul: {\"filled\": {\"<id>\": \"<valoare>\", ...}}\n7. NU returna explicații, doar JSON.`;\n\nconst userText = `Titlu produs: ${title}\\n\\nDescriere produs: ${description}\\n\\nCaracteristici de completat (JSON):\\n${JSON.stringify(chars)}`;\n\nconst imageResults = await Promise.all(images.map(fetchImageBase64));\nconst imageParts = imageResults.filter(Boolean).map(img => ({ inlineData: { mimeType: img.mimeType, data: img.data } }));\n\nconst reqBody = {\n  systemInstruction: { parts: [{ text: systemInstruction }] },\n  contents: [{ role: 'user', parts: [{ text: userText }, ...imageParts] }],\n  generationConfig: {\n    temperature: 0.2,\n    responseMimeType: 'application/json',\n    responseSchema: {\n      type: 'object',\n      properties: { filled: { type: 'object', additionalProperties: { type: 'string' } } },\n      required: ['filled']\n    }\n  }\n};\n\nconst reqBodyStr = JSON.stringify(reqBody);\nlet geminiResponse;\nlet lastError = null;\ntry {\n  geminiResponse = await callGemini(MODEL_PRIMARY, reqBodyStr);\n} catch (err) {\n  lastError = err;\n  console.log('[Gemini primary failed]', err.message);\n  try {\n    geminiResponse = await callGemini(MODEL_FALLBACK, reqBodyStr);\n  } catch (err2) {\n    console.log('[Gemini fallback failed]', err2.message);\n    return [{ json: {\n      _error: 'gemini failed: ' + err2.message,\n      _primaryError: lastError ? lastError.message : null,\n      attributes: { [platform]: {} }\n    } }];\n  }\n}\n\nlet filled = {};\ntry {\n  const parsed = JSON.parse(geminiResponse.body.toString('utf8'));\n  const text = parsed?.candidates?.[0]?.content?.parts?.[0]?.text;\n  if (text) {\n    const json = JSON.parse(text);\n    if (json && typeof json.filled === 'object' && json.filled) filled = json.filled;\n  }\n} catch (e) {\n  const bodySnippet = geminiResponse.body.toString('utf8').slice(0, 500);\n  console.log('[Gemini parse failed]', e.message, bodySnippet);\n  return [{ json: { _error: 'parse failed: ' + e.message, _bodySnippet: bodySnippet, attributes: { [platform]: {} } } }];\n}\n\nreturn [{ json: { attributes: { [platform]: filled } } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 460],
+      "id": "code-gemini-fill",
+      "name": "Call Gemini"
+    }
+  ],
+  "connections": {
+    "Webhook AI Fill": {
+      "main": [
+        [
+          {
+            "node": "Prepare Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Input": {
+      "main": [
+        [
+          {
+            "node": "Fetch Characteristics",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Characteristics": {
+      "main": [
+        [
+          {
+            "node": "Call Gemini",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}

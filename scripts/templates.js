@@ -477,7 +477,7 @@ financiarProductTable: (products, detailsMap, commandId, calculatedData = null) 
                             <button class="p-2 rounded-full hover:bg-gray-200 dropdown-toggle">
                                 <span class="material-icons text-gray-600">more_vert</span>
                             </button>
-                            <div class="absolute right-0 mt-2 w-56 bg-white rounded-lg shadow-xl hidden dropdown-menu z-20 border border-gray-200">
+                            <div class="absolute right-0 mt-2 w-64 bg-white rounded-lg shadow-xl hidden dropdown-menu z-20 border border-gray-200">
                                 <a href="#"
                                    data-action="ready-to-list-command"
                                    data-command-id="${cmd.id}"
@@ -485,12 +485,34 @@ financiarProductTable: (products, detailsMap, commandId, calculatedData = null) 
                                     <span class="material-icons text-base ${iconClass}">${iconName}</span>
                                     <span>${actionText}</span>
                                 </a>
-                                </div>
+                                <a href="#"
+                                   data-action="temu-recommend-command"
+                                   data-command-id="${cmd.id}" class="flex items-center space-x-2 block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">
+                                    <span class="material-icons text-base text-red-500">auto_awesome</span>
+                                    <span>Recomandă categorii Temu</span>
+                                </a>
+                            </div>
                         </div>
                     </div>`;
              }).join('')
             : `<p class="col-span-full text-gray-500">Nu există comenzi de afișat.</p>`;
-        return `<div class="p-6 sm:p-8"><h2 class="text-3xl font-bold text-gray-800 mb-6">Panou de Comenzi</h2><div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">${commandsHTML}</div></div>`;
+        return `<div class="p-6 sm:p-8">
+            <div class="flex items-center justify-between mb-6 flex-wrap gap-3">
+                <h2 class="text-3xl font-bold text-gray-800">Panou de Comenzi</h2>
+                <div class="flex items-center gap-2">
+                    <span class="text-xs text-gray-500 mr-1">Admin Temu:</span>
+                    <button data-action="temu-sync-cats"
+                            class="text-xs px-3 py-1.5 rounded-lg border border-red-300 text-red-600 bg-white hover:bg-red-50 transition-colors font-semibold">
+                        Sync categorii
+                    </button>
+                    <button data-action="temu-sync-attrs"
+                            class="text-xs px-3 py-1.5 rounded-lg border border-red-300 text-red-600 bg-white hover:bg-red-50 transition-colors font-semibold">
+                        Sync atribute
+                    </button>
+                </div>
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">${commandsHTML}</div>
+        </div>`;
     },
 
     import: () => `<div class="p-6 sm:p-8"><h2 class="text-3xl font-bold text-gray-800 mb-6">Import Comandă Nouă</h2><div class="max-w-md bg-white p-8 rounded-lg shadow-md"><form id="upload-form"><div class="mb-5"><label for="zip-file" class="block mb-2 text-sm font-medium">Manifest (.zip):</label><input type="file" id="zip-file" name="zipFile" accept=".zip" required class="w-full text-sm border-gray-300 rounded-lg cursor-pointer bg-gray-50"></div><div class="mb-6"><label for="pdf-file" class="block mb-2 text-sm font-medium">Factura (.pdf):</label><input type="file" id="pdf-file" name="pdfFile" accept=".pdf" required class="w-full text-sm border-gray-300 rounded-lg cursor-pointer bg-gray-50"></div><p id="upload-status" class="mt-4 text-center text-sm font-medium min-h-[20px]"></p><button id="upload-button" type="submit" class="w-full mt-2 flex justify-center items-center px-4 py-3 text-lg font-bold text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:bg-blue-300"><span class="button-text">Trimite fișierele 🚀</span><div class="button-loader hidden w-6 h-6 border-4 border-white border-t-transparent rounded-full animate-spin"></div></button></form></div></div>`,
