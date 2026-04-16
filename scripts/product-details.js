@@ -1522,10 +1522,11 @@ export async function loadProductAttributesFromDB(asin) {
                 mappingState.savedValues[platform][platformData.categoryId] = platformData.attributes || {};
                 mappingState.categories[platform] = platformData.categoryId;
                 const selector = document.getElementById(`category-selector-${platform}`);
+                let opt = null;
                 if (selector) {
                     const catName = platformData.categoryName || `Categorie ${platformData.categoryId}`;
                     // Adaugă opțiunea dacă nu există deja
-                    let opt = selector.querySelector(`option[value="${platformData.categoryId}"]`);
+                    opt = selector.querySelector(`option[value="${platformData.categoryId}"]`);
                     if (!opt) {
                         opt = document.createElement('option');
                         opt.value = platformData.categoryId;
@@ -1549,10 +1550,13 @@ export async function loadProductAttributesFromDB(asin) {
                             delete mappingState.savedValues[platform][platformData.categoryId];
                         }
                     }
-                    if (resolvedName && opt) {
-                        opt.textContent = resolvedName;
-                        opt.dataset.name = resolvedName;
-                        if (selector) selector.value = resolvedId;
+                    if (resolvedName && selector) {
+                        const currentOpt = selector.querySelector(`option[value="${resolvedId}"]`) || opt;
+                        if (currentOpt) {
+                            currentOpt.textContent = resolvedName;
+                            currentOpt.dataset.name = resolvedName;
+                        }
+                        selector.value = resolvedId;
                     }
                 }
                 restoreAttributeValues(platform, platformData.attributes || {});
