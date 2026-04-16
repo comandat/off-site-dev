@@ -500,12 +500,18 @@ export async function handleImageTranslation(button) {
 
 
 // Traducere bulk pentru toate ASIN-urile distincte dintr-o comandă, într-o singură limbă.
-// Filtrează out: produse deja traduse (other_versions[langName] există) și cele fără imagini.
+// Apelează TRANSLATION_WEBHOOK_URL (v2-multilang-generate) — exact ca dropdown-ul „Traduceți"
+// de pe pagina produsului, deci traduce titlu + descriere + imagini.
+// Filtrează out: produse deja traduse (other_versions[langName] există) + cele care nu respectă
+// cerințele minime (title ≥ 10, description ≥ 50, images ≥ 3) — aceleași validări ca în single.
 // Lansează în batch-uri de 20, la 65s între lansările de batch (fire-and-forget per batch,
-// await la final pentru sumar). Înlocuiește manualul 3 × N clickuri pe butonul "Traduceți".
+// await la final pentru sumar).
 export async function handleBulkImageTranslation(button, langCode) {
     const BATCH_SIZE = 20;
     const BATCH_INTERVAL_MS = 65000;
+    const MIN_TITLE = 10;
+    const MIN_DESC = 50;
+    const MIN_IMAGES = 3;
     const originalText = button.innerHTML;
 
     const safeSetText = (html) => {
@@ -535,33 +541,49 @@ export async function handleBulkImageTranslation(button, langCode) {
 
         const tasks = [];
         const skippedAlready = [];
-        const skippedNoImages = [];
+        const skippedTooShort = [];
+        const skippedFewImages = [];
 
         for (const asin of distinctAsins) {
             const d = details[asin];
-            if (!d) { skippedNoImages.push(asin); continue; }
+            if (!d) { skippedTooShort.push(asin); continue; }
+
             const existing = Object.keys(d.other_versions || {}).map(k => k.toLowerCase());
             if (existing.includes(langName)) { skippedAlready.push(asin); continue; }
-            const images = cleanImages(d.images).slice(0, 5);
-            if (images.length === 0) { skippedNoImages.push(asin); continue; }
-            tasks.push({ asin, lang: langCode, images });
+
+            const title = (d.title || '').trim();
+            const description = (d.description || '').trim();
+            const images = cleanImages(d.images);
+
+            if (title.length < MIN_TITLE || description.length < MIN_DESC) {
+                skippedTooShort.push(asin);
+                continue;
+            }
+            if (images.length < MIN_IMAGES) {
+                skippedFewImages.push(asin);
+                continue;
+            }
+
+            tasks.push({ asin, language: langCode, title, description, images });
         }
 
         if (tasks.length === 0) {
             alert(
                 `Nimic de tradus pentru ${langCode.toUpperCase()}.\n` +
                 `Deja traduse: ${skippedAlready.length}\n` +
-                `Fără imagini: ${skippedNoImages.length}`
+                `Titlu/descriere prea scurte: ${skippedTooShort.length}\n` +
+                `Sub ${MIN_IMAGES} imagini: ${skippedFewImages.length}`
             );
             return false;
         }
 
         const totalBatches = Math.ceil(tasks.length / BATCH_SIZE);
         const confirmMsg =
-            `Se vor trimite ${tasks.length} cereri pentru ${langCode.toUpperCase()} ` +
+            `Se vor trimite ${tasks.length} cereri de traducere completă (titlu+descriere+imagini) pentru ${langCode.toUpperCase()}\n` +
             `(${totalBatches} batch-uri × max ${BATCH_SIZE}, 65s între lansări).\n\n` +
             `Deja traduse (omise): ${skippedAlready.length}\n` +
-            `Fără imagini (omise): ${skippedNoImages.length}\n\n` +
+            `Titlu/descriere prea scurte (omise): ${skippedTooShort.length}\n` +
+            `Sub ${MIN_IMAGES} imagini (omise): ${skippedFewImages.length}\n\n` +
             `Continuați?`;
         if (!confirm(confirmMsg)) return false;
 
@@ -575,10 +597,16 @@ export async function handleBulkImageTranslation(button, langCode) {
 
             for (const t of batch) {
                 inflight.push(
-                    fetch(IMAGE_TRANSLATION_WEBHOOK_URL, {
+                    fetch(TRANSLATION_WEBHOOK_URL, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify([t])
+                        body: JSON.stringify({
+                            asin: t.asin,
+                            language: t.language,
+                            title: t.title,
+                            description: t.description,
+                            images: t.images
+                        })
                     })
                     .then(async r => ({
                         ok: r.ok,
