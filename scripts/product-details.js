@@ -416,10 +416,22 @@ export async function handleTranslationInit(languageOption) {
         </div>`;
 
     try {
+        const competitors = state.competitionDataCache?.competitors || [];
+        const competitionPayload = {};
+        competitors.slice(0, 5).forEach((c, i) => {
+            competitionPayload[`competition_${i + 1}_title`] = c.name || '';
+        });
+
         const response = await fetch(TRANSLATION_WEBHOOK_URL, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ asin, language: langCode })
+            body: JSON.stringify({
+                asin,
+                language: langCode,
+                title: originTitle,
+                description: originDescription,
+                ...competitionPayload
+            })
         });
 
         if (response.ok) {
