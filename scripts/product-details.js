@@ -1535,7 +1535,26 @@ export async function loadProductAttributesFromDB(asin) {
                     }
                     selector.value = platformData.categoryId;
                 }
-                await fetchAndRenderAttributes(platform, platformData.categoryId);
+                const fetchResult = await fetchAndRenderAttributes(platform, platformData.categoryId);
+                // Aplică ID-ul și numele rezolvate de backend (name-based lookup când ID-ul din
+                // competiție eMAG e greșit dar numele e corect → backend găsește ID-ul canonical).
+                if (fetchResult) {
+                    const resolvedId = fetchResult.resolvedCategoryId || platformData.categoryId;
+                    const resolvedName = fetchResult.resolvedCategoryName;
+                    if (resolvedId !== platformData.categoryId) {
+                        mappingState.categories[platform] = resolvedId;
+                        if (!mappingState.savedValues[platform]) mappingState.savedValues[platform] = {};
+                        if (mappingState.savedValues[platform][platformData.categoryId]) {
+                            mappingState.savedValues[platform][resolvedId] = mappingState.savedValues[platform][platformData.categoryId];
+                            delete mappingState.savedValues[platform][platformData.categoryId];
+                        }
+                    }
+                    if (resolvedName && opt) {
+                        opt.textContent = resolvedName;
+                        opt.dataset.name = resolvedName;
+                        if (selector) selector.value = resolvedId;
+                    }
+                }
                 restoreAttributeValues(platform, platformData.attributes || {});
             }
             restoreConnections();
