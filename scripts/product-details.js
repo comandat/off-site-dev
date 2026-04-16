@@ -1411,7 +1411,10 @@ function collectAllAttributeValues() {
         const platform = mp.id;
         const values = collectAttributeValuesForPlatform(platform);
         const categoryId = mappingState.categories[platform];
-        result[platform] = { categoryId: categoryId || null, attributes: values };
+        const selector = document.getElementById(`category-selector-${platform}`);
+        const selectedOpt = selector?.selectedOptions?.[0];
+        const categoryName = selectedOpt?.dataset?.name || selectedOpt?.textContent?.trim() || null;
+        result[platform] = { categoryId: categoryId || null, categoryName: categoryName || null, attributes: values };
     });
     return result;
 }
