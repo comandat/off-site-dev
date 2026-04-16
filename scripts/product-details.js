@@ -499,16 +499,29 @@ export async function handleImageTranslation(button) {
 }
 
 
+// State modul pentru bulk-translate activ — un singur proces la un moment dat, ca să
+// știm exact pe cine oprim când utilizatorul apasă Force Stop.
+let activeBulkController = null;
+
+// Oprire forțată: anulează toate fetch-urile în zbor + setează flagul care rupe loop-ul
+// dintre batch-uri. Apelată din butonul „Force Stop".
+export function handleBulkTranslateStop() {
+    if (!activeBulkController) {
+        alert('Nicio traducere bulk în curs.');
+        return;
+    }
+    activeBulkController.abort();
+}
+
 // Traducere bulk pentru toate ASIN-urile distincte dintr-o comandă, într-o singură limbă.
 // Apelează TRANSLATION_WEBHOOK_URL (v2-multilang-generate) — exact ca dropdown-ul „Traduceți"
 // de pe pagina produsului, deci traduce titlu + descriere + imagini.
 // Filtrează out: produse deja traduse (other_versions[langName] există) + cele care nu respectă
 // cerințele minime (title ≥ 10, description ≥ 50, images ≥ 3) — aceleași validări ca în single.
-// Lansează în batch-uri de 20, la 65s între lansările de batch (fire-and-forget per batch,
-// await la final pentru sumar).
+// Batching sequential: trimite 20, așteaptă să răspundă toate, apoi trimite următoarele 20.
+// AbortController activ permite Force Stop să cancel-eze fetch-urile în zbor + să rupă loop-ul.
 export async function handleBulkImageTranslation(button, langCode) {
     const BATCH_SIZE = 20;
-    const BATCH_INTERVAL_MS = 65000;
     const MIN_TITLE = 10;
     const MIN_DESC = 50;
     const MIN_IMAGES = 3;
@@ -517,6 +530,11 @@ export async function handleBulkImageTranslation(button, langCode) {
     const safeSetText = (html) => {
         if (button && document.body.contains(button)) button.innerHTML = html;
     };
+
+    if (activeBulkController) {
+        alert('O altă traducere bulk este deja în curs. Oprește-o întâi cu Force Stop.');
+        return false;
+    }
 
     try {
         langCode = (langCode || '').toLowerCase();
@@ -580,71 +598,85 @@ export async function handleBulkImageTranslation(button, langCode) {
         const totalBatches = Math.ceil(tasks.length / BATCH_SIZE);
         const confirmMsg =
             `Se vor trimite ${tasks.length} cereri de traducere completă (titlu+descriere+imagini) pentru ${langCode.toUpperCase()}\n` +
-            `(${totalBatches} batch-uri × max ${BATCH_SIZE}, 65s între lansări).\n\n` +
+            `(${totalBatches} batch-uri × max ${BATCH_SIZE}, fiecare batch așteaptă răspunsul complet înainte de următorul).\n\n` +
             `Deja traduse (omise): ${skippedAlready.length}\n` +
             `Titlu/descriere prea scurte (omise): ${skippedTooShort.length}\n` +
             `Sub ${MIN_IMAGES} imagini (omise): ${skippedFewImages.length}\n\n` +
             `Continuați?`;
         if (!confirm(confirmMsg)) return false;
 
-        const inflight = [];
+        const controller = new AbortController();
+        activeBulkController = controller;
+
+        const allResults = [];
+        let aborted = false;
+
         for (let i = 0; i < tasks.length; i += BATCH_SIZE) {
+            if (controller.signal.aborted) { aborted = true; break; }
+
             const batch = tasks.slice(i, i + BATCH_SIZE);
             const batchIdx = Math.floor(i / BATCH_SIZE) + 1;
-            const startedAt = Date.now();
 
-            safeSetText(`Batch ${batchIdx}/${totalBatches} (${langCode.toUpperCase()})...`);
+            safeSetText(`Batch ${batchIdx}/${totalBatches} (${langCode.toUpperCase()}) — ${batch.length} în zbor...`);
 
-            for (const t of batch) {
-                inflight.push(
-                    fetch(TRANSLATION_WEBHOOK_URL, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            asin: t.asin,
-                            language: t.language,
-                            title: t.title,
-                            description: t.description,
-                            images: t.images
-                        })
-                    })
-                    .then(async r => ({
-                        ok: r.ok,
+            const batchPromises = batch.map(t =>
+                fetch(TRANSLATION_WEBHOOK_URL, {
+                    method: 'POST',
+                    signal: controller.signal,
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
                         asin: t.asin,
-                        status: r.status,
-                        body: await r.json().catch(() => null)
-                    }))
-                    .catch(e => ({ ok: false, asin: t.asin, error: e.message }))
-                );
-            }
+                        language: t.language,
+                        title: t.title,
+                        description: t.description,
+                        images: t.images
+                    })
+                })
+                .then(async r => ({
+                    ok: r.ok,
+                    asin: t.asin,
+                    status: r.status,
+                    body: await r.json().catch(() => null)
+                }))
+                .catch(e => ({
+                    ok: false,
+                    asin: t.asin,
+                    aborted: e.name === 'AbortError',
+                    error: e.message
+                }))
+            );
 
-            const isLast = i + BATCH_SIZE >= tasks.length;
-            if (!isLast) {
-                const elapsed = Date.now() - startedAt;
-                const wait = Math.max(0, BATCH_INTERVAL_MS - elapsed);
-                await new Promise(r => setTimeout(r, wait));
-            }
+            const batchResults = await Promise.all(batchPromises);
+            allResults.push(...batchResults);
+
+            if (controller.signal.aborted) { aborted = true; break; }
         }
 
-        safeSetText(`Se așteaptă răspunsurile (${langCode.toUpperCase()})...`);
-        const results = await Promise.all(inflight);
-        const okCount = results.filter(r => r.ok).length;
-        const failCount = results.length - okCount;
+        const okCount = allResults.filter(r => r.ok).length;
+        const abortedCount = allResults.filter(r => r.aborted).length;
+        const failCount = allResults.length - okCount - abortedCount;
+        const notSent = tasks.length - allResults.length;
 
-        const failedAsins = results.filter(r => !r.ok).map(r => r.asin);
-        console.log(`Bulk translate ${langCode.toUpperCase()} — rezultat:`, { okCount, failCount, failedAsins, results });
+        const failedAsins = allResults.filter(r => !r.ok && !r.aborted).map(r => r.asin);
+        console.log(`Bulk translate ${langCode.toUpperCase()} — rezultat:`, {
+            okCount, failCount, abortedCount, notSent, failedAsins, results: allResults
+        });
 
         alert(
-            `Traducere ${langCode.toUpperCase()} finalizată:\n` +
+            (aborted ? `⛔ Oprit de utilizator (${langCode.toUpperCase()}):\n` : `Traducere ${langCode.toUpperCase()} finalizată:\n`) +
             `✓ ${okCount} OK\n` +
-            `✗ ${failCount} eșuate` + (failCount ? `\n\nASIN-uri eșuate (vezi console):\n${failedAsins.slice(0, 10).join(', ')}${failedAsins.length > 10 ? '…' : ''}` : '')
+            `✗ ${failCount} eșuate\n` +
+            (abortedCount ? `⏹ ${abortedCount} anulate în zbor\n` : '') +
+            (notSent ? `⊘ ${notSent} nelansate\n` : '') +
+            (failedAsins.length ? `\nASIN-uri eșuate (vezi console):\n${failedAsins.slice(0, 10).join(', ')}${failedAsins.length > 10 ? '…' : ''}` : '')
         );
-        return true;
+        return !aborted;
     } catch (error) {
         console.error('Eroare bulk translate:', error);
         alert(`Eroare: ${error.message}`);
         return false;
     } finally {
+        activeBulkController = null;
         if (button && document.body.contains(button)) {
             button.disabled = false;
             button.innerHTML = originalText;

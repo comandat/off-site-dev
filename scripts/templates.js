@@ -618,6 +618,10 @@ financiarProductTable: (products, detailsMap, commandId, calculatedData = null) 
                         class="px-3 py-1.5 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-md disabled:opacity-50 whitespace-nowrap">
                     Tradu HU
                 </button>
+                <button data-action="bulk-translate-stop"
+                        class="px-3 py-1.5 text-sm font-semibold text-white bg-red-600 hover:bg-red-700 rounded-md whitespace-nowrap">
+                    Force Stop
+                </button>
             </div>
             <div class="flex-1 relative">
                 <span class="material-icons absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">search</span>

@@ -24,6 +24,7 @@ import {
     saveProductCoreData,
     handleImageTranslation,
     handleBulkImageTranslation,
+    handleBulkTranslateStop,
     handleDescriptionRefresh,
     handleCategoryChange,
     handleAiFillAttributes,
@@ -469,6 +470,9 @@ document.addEventListener('DOMContentLoaded', async () => {
             if (action === 'bulk-translate-images') {
                 const langCode = actionButton.dataset.langCode;
                 await handleBulkImageTranslation(actionButton, langCode);
+            }
+            if (action === 'bulk-translate-stop') {
+                handleBulkTranslateStop();
             }
             if (['delete-image', 'add-image-url', 'copy-origin-images'].includes(action)) {
                 handleImageActions(action, actionButton);
