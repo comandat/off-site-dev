@@ -430,6 +430,7 @@ export async function handleTranslationInit(languageOption) {
                 language: langCode,
                 title: originTitle,
                 description: originDescription,
+                images: originImages,
                 ...competitionPayload
             })
         });
