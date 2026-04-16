@@ -23,6 +23,7 @@ import {
     saveCurrentTabData,
     saveProductCoreData,
     handleImageTranslation,
+    handleBulkImageTranslation,
     handleDescriptionRefresh,
     handleCategoryChange,
     handleAiFillAttributes,
@@ -464,6 +465,10 @@ document.addEventListener('DOMContentLoaded', async () => {
                     await renderView('produs-detaliu', { commandId: state.currentCommandId, productId: state.currentProductId });
                     loadTabData(currentTabKey);
                  }
+            }
+            if (action === 'bulk-translate-images') {
+                const langCode = actionButton.dataset.langCode;
+                await handleBulkImageTranslation(actionButton, langCode);
             }
             if (['delete-image', 'add-image-url', 'copy-origin-images'].includes(action)) {
                 handleImageActions(action, actionButton);

@@ -1,5 +1,6 @@
 import { state } from './state.js';
 import {
+    languages,
     languageNameToCodeMap,
     COMPETITION_WEBHOOK_URL,
     TITLE_GENERATION_WEBHOOK_URL,
@@ -37,7 +38,7 @@ function applyPersistedMarketplaceOrder() {
 }
 applyPersistedMarketplaceOrder();
 import { renderImageGallery, initializeSortable, templates } from './templates.js';
-import { saveProductDetails } from './data.js';
+import { saveProductDetails, AppState, fetchProductDetailsInBulk } from './data.js';
 
 const cleanImages = (images) =>
     [...new Set((images || []).filter(img => img))];
@@ -494,6 +495,132 @@ export async function handleImageTranslation(button) {
     } finally {
         button.disabled = false;
         button.innerHTML = originalText;
+    }
+}
+
+
+// Traducere bulk pentru toate ASIN-urile distincte dintr-o comandă, într-o singură limbă.
+// Filtrează out: produse deja traduse (other_versions[langName] există) și cele fără imagini.
+// Lansează în batch-uri de 20, la 65s între lansările de batch (fire-and-forget per batch,
+// await la final pentru sumar). Înlocuiește manualul 3 × N clickuri pe butonul "Traduceți".
+export async function handleBulkImageTranslation(button, langCode) {
+    const BATCH_SIZE = 20;
+    const BATCH_INTERVAL_MS = 65000;
+    const originalText = button.innerHTML;
+
+    const safeSetText = (html) => {
+        if (button && document.body.contains(button)) button.innerHTML = html;
+    };
+
+    try {
+        langCode = (langCode || '').toLowerCase();
+        const langName = (languages[langCode] || '').toLowerCase();
+        if (!langName) throw new Error(`Cod limbă invalid: ${langCode}`);
+
+        const commandId = state.currentCommandId;
+        if (!commandId) throw new Error('Nicio comandă activă.');
+        const cmd = AppState.getCommands().find(c => String(c.id) === String(commandId));
+        if (!cmd) throw new Error('Comanda nu a fost găsită în cache.');
+
+        const distinctAsins = [...new Set((cmd.products || []).map(p => p.asin).filter(Boolean))];
+        if (distinctAsins.length === 0) {
+            alert('Nu există produse în această comandă.');
+            return false;
+        }
+
+        button.disabled = true;
+        safeSetText(`Se încarcă detalii... (${langCode.toUpperCase()})`);
+
+        const details = await fetchProductDetailsInBulk(distinctAsins);
+
+        const tasks = [];
+        const skippedAlready = [];
+        const skippedNoImages = [];
+
+        for (const asin of distinctAsins) {
+            const d = details[asin];
+            if (!d) { skippedNoImages.push(asin); continue; }
+            const existing = Object.keys(d.other_versions || {}).map(k => k.toLowerCase());
+            if (existing.includes(langName)) { skippedAlready.push(asin); continue; }
+            const images = cleanImages(d.images).slice(0, 5);
+            if (images.length === 0) { skippedNoImages.push(asin); continue; }
+            tasks.push({ asin, lang: langCode, images });
+        }
+
+        if (tasks.length === 0) {
+            alert(
+                `Nimic de tradus pentru ${langCode.toUpperCase()}.\n` +
+                `Deja traduse: ${skippedAlready.length}\n` +
+                `Fără imagini: ${skippedNoImages.length}`
+            );
+            return false;
+        }
+
+        const totalBatches = Math.ceil(tasks.length / BATCH_SIZE);
+        const confirmMsg =
+            `Se vor trimite ${tasks.length} cereri pentru ${langCode.toUpperCase()} ` +
+            `(${totalBatches} batch-uri × max ${BATCH_SIZE}, 65s între lansări).\n\n` +
+            `Deja traduse (omise): ${skippedAlready.length}\n` +
+            `Fără imagini (omise): ${skippedNoImages.length}\n\n` +
+            `Continuați?`;
+        if (!confirm(confirmMsg)) return false;
+
+        const inflight = [];
+        for (let i = 0; i < tasks.length; i += BATCH_SIZE) {
+            const batch = tasks.slice(i, i + BATCH_SIZE);
+            const batchIdx = Math.floor(i / BATCH_SIZE) + 1;
+            const startedAt = Date.now();
+
+            safeSetText(`Batch ${batchIdx}/${totalBatches} (${langCode.toUpperCase()})...`);
+
+            for (const t of batch) {
+                inflight.push(
+                    fetch(IMAGE_TRANSLATION_WEBHOOK_URL, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify([t])
+                    })
+                    .then(async r => ({
+                        ok: r.ok,
+                        asin: t.asin,
+                        status: r.status,
+                        body: await r.json().catch(() => null)
+                    }))
+                    .catch(e => ({ ok: false, asin: t.asin, error: e.message }))
+                );
+            }
+
+            const isLast = i + BATCH_SIZE >= tasks.length;
+            if (!isLast) {
+                const elapsed = Date.now() - startedAt;
+                const wait = Math.max(0, BATCH_INTERVAL_MS - elapsed);
+                await new Promise(r => setTimeout(r, wait));
+            }
+        }
+
+        safeSetText(`Se așteaptă răspunsurile (${langCode.toUpperCase()})...`);
+        const results = await Promise.all(inflight);
+        const okCount = results.filter(r => r.ok).length;
+        const failCount = results.length - okCount;
+
+        const failedAsins = results.filter(r => !r.ok).map(r => r.asin);
+        console.log(`Bulk translate ${langCode.toUpperCase()} — rezultat:`, { okCount, failCount, failedAsins, results });
+
+        alert(
+            `Traducere ${langCode.toUpperCase()} finalizată:\n` +
+            `✓ ${okCount} OK\n` +
+            `✗ ${failCount} eșuate` + (failCount ? `\n\nASIN-uri eșuate (vezi console):\n${failedAsins.slice(0, 10).join(', ')}${failedAsins.length > 10 ? '…' : ''}` : '')
+        );
+        return true;
+    } catch (error) {
+        console.error('Eroare bulk translate:', error);
+        alert(`Eroare: ${error.message}`);
+        return false;
+    } finally {
+        if (button && document.body.contains(button)) {
+            button.disabled = false;
+            button.innerHTML = originalText;
+        }
     }
 }
 

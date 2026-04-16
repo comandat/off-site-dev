@@ -605,6 +605,20 @@ financiarProductTable: (products, detailsMap, commandId, calculatedData = null) 
         <header class="sticky top-0 z-10 bg-white shadow-sm p-4 flex items-center space-x-4">
             <button data-action="back-to-comenzi" class="p-2 rounded-full hover:bg-gray-100"><span class="material-icons">arrow_back</span></button>
             <h1 class="text-xl font-bold text-gray-800 whitespace-nowrap">${command.name}</h1>
+            <div class="flex items-center gap-2">
+                <button data-action="bulk-translate-images" data-lang-code="ro"
+                        class="px-3 py-1.5 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-md disabled:opacity-50 whitespace-nowrap">
+                    Tradu RO
+                </button>
+                <button data-action="bulk-translate-images" data-lang-code="bg"
+                        class="px-3 py-1.5 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-md disabled:opacity-50 whitespace-nowrap">
+                    Tradu BG
+                </button>
+                <button data-action="bulk-translate-images" data-lang-code="hu"
+                        class="px-3 py-1.5 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-md disabled:opacity-50 whitespace-nowrap">
+                    Tradu HU
+                </button>
+            </div>
             <div class="flex-1 relative">
                 <span class="material-icons absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">search</span>
                 <input id="product-search-input" type="text" placeholder="Caută după titlu sau ASIN..." class="w-full pl-10 pr-4 py-2 border rounded-lg bg-gray-50 focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none transition" value="${state.currentSearchQuery}">
