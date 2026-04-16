@@ -541,12 +541,6 @@ financiarProductTable: (products, detailsMap, commandId, calculatedData = null) 
                                     <span class="material-icons text-base ${iconClass}">${iconName}</span>
                                     <span>${actionText}</span>
                                 </a>
-                                <a href="#"
-                                   data-action="temu-recommend-command"
-                                   data-command-id="${cmd.id}" class="flex items-center space-x-2 block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">
-                                    <span class="material-icons text-base text-red-500">auto_awesome</span>
-                                    <span>Recomandă categorii Temu</span>
-                                </a>
                             </div>
                         </div>
                     </div>`;

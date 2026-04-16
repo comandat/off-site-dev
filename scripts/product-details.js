@@ -196,6 +196,7 @@ export async function fetchAndRenderCompetition(asin) {
         state.competitionDataCache = data;
         container.innerHTML = templates.competition(data);
         populateCategorySelector();
+        populateTemuCategorySelector();
     } catch (error) {
         console.error('Eroare competiție:', error);
         container.innerHTML = `<div class="p-8 text-center text-red-500">Nu s-au putut încărca produsele concurente.</div>`;
@@ -645,6 +646,46 @@ export function populateCategorySelector() {
     }
 }
 
+// Temu: recomandările vin per-produs de la Temu API (pre-calculate la inserare ordin)
+// și sunt returnate de v2-competition în `temu_recommendations` (deja îmbogățite cu
+// nume RO/EN prin JOIN pe catalogs.categories). Structura item: { categoryId, categoryName, nameRo, isBest }.
+// NU depind de categoria eMAG aleasă — de aceea sunt excluse din applyCategoryMappings.
+export function populateTemuCategorySelector() {
+    const list = [...(state.competitionDataCache?.temu_recommendations || [])];
+    const selector = document.getElementById('category-selector-temu');
+    if (!selector) return;
+
+    const savedTemuId = mappingState.categories.temu;
+
+    // Produs fără recomandări Temu și fără nimic salvat → dropdown gol.
+    // User-ul are butonul "Toate" care apelează v2-all-categories pentru căutare manuală.
+    if (list.length === 0 && !savedTemuId) {
+        selector.innerHTML = '<option value="">Selectați o categorie...</option>';
+        return;
+    }
+
+    // Dacă produsul are deja o categorie Temu salvată care nu e în recomandări,
+    // o păstrăm ca opțiune selectată (evităm pierderea alegerii user-ului).
+    if (savedTemuId && !list.find(m => String(m.categoryId) === String(savedTemuId))) {
+        const existingOpt = selector.querySelector(`option[value="${savedTemuId}"]`);
+        const savedName = (existingOpt?.dataset?.name || existingOpt?.textContent || '').trim()
+            || `Categorie ${savedTemuId}`;
+        list.unshift({ categoryId: savedTemuId, categoryName: savedName });
+    }
+
+    const targetId = savedTemuId ? String(savedTemuId) : null;
+    populateMappedCategoryDropdown('temu', list, targetId);
+
+    // Dacă n-avea nimic salvat, aplicăm prima recomandare (cea mai bună conform Temu API) —
+    // declanșează fetch-ul de atribute pentru acea categorie.
+    if (!savedTemuId && list.length) {
+        const best = list.find(m => m.isBest) || list[0];
+        if (best && best.categoryId) {
+            handleCategoryChange('temu', String(best.categoryId));
+        }
+    }
+}
+
 export async function handleCategoryChange(platform, categoryId) {
     if (!categoryId) return;
 
@@ -732,7 +773,10 @@ async function applyCategoryMappings(emagCategoryId) {
         // Iterăm peste toate marketplace-urile în afară de eMAG (sursa).
         // Când adaugi un marketplace nou în MARKETPLACES, va primi automat mapping lookup
         // pentru noul `<id>_ro` dacă workflow-ul v2-category-mappings îl returnează.
-        const targetPlatforms = MARKETPLACES.map(m => m.id).filter(id => id !== 'emag');
+        // Temu are propriul flux de recomandări (per-produs, via Temu API) încărcat în
+        // populateTemuCategorySelector, NU derivat din categoria eMAG. Îl excludem aici
+        // ca să nu suprascriem recomandarea specifică produsului la schimbarea categoriei eMAG.
+        const targetPlatforms = MARKETPLACES.map(m => m.id).filter(id => id !== 'emag' && id !== 'temu');
         for (const targetPlatform of targetPlatforms) {
             const list = Array.isArray(mappings[targetPlatform]) ? mappings[targetPlatform] : [];
             if (!list.length) continue;

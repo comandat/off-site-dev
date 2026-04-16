@@ -19,7 +19,6 @@ export const CATEGORY_MAPPINGS_WEBHOOK_URL = `${BASE}/v2-category-mappings`;
 
 export const TEMU_SYNC_CATS_URL  = `${BASE}/v2-temu-sync-cats`;
 export const TEMU_SYNC_ATTRS_URL = `${BASE}/v2-temu-sync-attributes`;
-export const TEMU_RECOMMEND_BULK_URL = `${BASE}/v2-temu-recommend-bulk`;
 
 export const GET_FINANCIAL_WEBHOOK_URL = `${BASE}/get-financial`;
 export const SAVE_FINANCIAL_WEBHOOK_URL = `${BASE}/save-financial`;
