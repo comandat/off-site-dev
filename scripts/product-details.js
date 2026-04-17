@@ -499,12 +499,18 @@ export async function handleImageTranslation(button) {
 }
 
 
-// State modul pentru bulk-translate activ — un singur proces la un moment dat, ca să
-// știm exact pe cine oprim când utilizatorul apasă Force Stop.
+// State modul pentru bulk-translate activ — un singur proces (întregul chain) la un
+// moment dat, ca să știm exact pe cine oprim când utilizatorul apasă Force Stop.
+// Controller-ul e partajat de toate limbile din chain (RO → BG → HU) ca Force Stop
+// să cancel-eze totul dintr-o lovitură.
 let activeBulkController = null;
 
-// Oprire forțată: anulează toate fetch-urile în zbor + setează flagul care rupe loop-ul
-// dintre batch-uri. Apelată din butonul „Force Stop".
+// Ordinea chain-ului: clic pe RO rulează RO apoi BG apoi HU; BG rulează BG apoi HU;
+// HU rulează doar HU. Util pentru automatizare peste noapte.
+const BULK_CHAIN_AFTER = { ro: ['bg', 'hu'], bg: ['hu'], hu: [] };
+
+// Oprire forțată: anulează toate fetch-urile în zbor + rupe chain-ul înainte de limba
+// următoare. Apelată din butonul „Force Stop".
 export function handleBulkTranslateStop() {
     if (!activeBulkController) {
         alert('Nicio traducere bulk în curs.');
@@ -513,15 +519,89 @@ export function handleBulkTranslateStop() {
     activeBulkController.abort();
 }
 
-// Traducere bulk pentru toate ASIN-urile distincte dintr-o comandă, într-o singură limbă.
-// Apelează TRANSLATION_WEBHOOK_URL (v2-multilang-generate) — exact ca dropdown-ul „Traduceți"
-// de pe pagina produsului, deci traduce titlu + descriere + imagini.
-// Filtrează out: produse deja traduse (other_versions[langName] există) + cele care nu respectă
-// cerințele minime (title ≥ 10, description ≥ 50, images ≥ 3) — aceleași validări ca în single.
-// Batching sequential: trimite 20, așteaptă să răspundă toate, apoi trimite următoarele 20.
-// AbortController activ permite Force Stop să cancel-eze fetch-urile în zbor + să rupă loop-ul.
+// Traducere bulk pentru toate ASIN-urile distincte dintr-o comandă.
+// Apelează TRANSLATION_WEBHOOK_URL (v2-multilang-generate) — exact ca dropdown-ul
+// „Traduceți" de pe pagina produsului (titlu + descriere + imagini).
+// Batching: 4 cereri în paralel, așteaptă toate să răspundă, apoi următoarele 4.
+// Timeout: 15 min per cerere (AbortSignal.timeout combinat cu controller-ul global).
+// Chain: după ce termină cu limba curentă continuă automat cu următoarele în plan —
+// vezi BULK_CHAIN_AFTER. Un singur confirm la început pentru întregul chain.
 export async function handleBulkImageTranslation(button, langCode) {
-    const BATCH_SIZE = 20;
+    if (activeBulkController) {
+        alert('O altă traducere bulk este deja în curs. Oprește-o întâi cu Force Stop.');
+        return false;
+    }
+
+    const initialLang = (langCode || '').toLowerCase();
+    if (!languages[initialLang]) {
+        alert(`Cod limbă invalid: ${langCode}`);
+        return false;
+    }
+
+    const chainPlan = [initialLang, ...(BULK_CHAIN_AFTER[initialLang] || [])];
+    const chainStr = chainPlan.map(l => l.toUpperCase()).join(' → ');
+
+    if (!confirm(
+        `Traducere automată în lanț: ${chainStr}\n\n` +
+        `• 4 cereri simultan per batch (așteaptă toate, apoi trimite următoarele 4)\n` +
+        `• Timeout 15 min per cerere\n` +
+        `• După finalizarea unei limbi continuă automat cu următoarea\n` +
+        `• Force Stop oprește întregul lanț\n\n` +
+        `Continuați?`
+    )) {
+        return false;
+    }
+
+    const controller = new AbortController();
+    activeBulkController = controller;
+    const chainSummary = [];
+
+    try {
+        for (const lang of chainPlan) {
+            if (controller.signal.aborted) break;
+
+            const btn =
+                document.querySelector(`[data-action="bulk-translate-images"][data-lang-code="${lang}"]`) ||
+                button;
+
+            const result = await runSingleLangBulk({ button: btn, langCode: lang, controller });
+            chainSummary.push({ lang, ...result });
+
+            if (result.aborted) break;
+        }
+    } finally {
+        activeBulkController = null;
+    }
+
+    // Sumar final pentru tot chain-ul
+    const stoppedEarly = controller.signal.aborted;
+    const body = chainSummary.length
+        ? chainSummary.map(s => {
+              const parts = [
+                  `${s.lang.toUpperCase()}:`,
+                  `✓${s.okCount}`,
+                  `✗${s.failCount}`,
+                  s.timedOutCount ? `⏱${s.timedOutCount}` : null,
+                  s.abortedCount ? `⏹${s.abortedCount}` : null,
+                  s.notSent ? `⊘${s.notSent}` : null,
+                  s.aborted ? '(oprit)' : null,
+                  s.message === 'nothing-to-translate' ? '(nimic de tradus)' : null,
+                  s.error ? `(eroare: ${s.error})` : null,
+              ].filter(Boolean);
+              return parts.join(' ');
+          }).join('\n')
+        : '(nicio limbă rulată)';
+
+    alert((stoppedEarly ? '⛔ Chain oprit de utilizator.\n\n' : '✅ Chain finalizat.\n\n') + body);
+    return !stoppedEarly;
+}
+
+// Rulează traducerea în bulk pentru O SINGURĂ limbă, folosind controller-ul partajat
+// de chain. Întoarce un rezumat { aborted, okCount, failCount, abortedCount, timedOutCount, notSent, ... }
+// pentru a fi agregat în sumarul final al chain-ului.
+async function runSingleLangBulk({ button, langCode, controller }) {
+    const BATCH_SIZE = 4;
+    const REQUEST_TIMEOUT_MS = 15 * 60 * 1000; // 15 minute
     const MIN_TITLE = 10;
     const MIN_DESC = 50;
     const MIN_IMAGES = 3;
@@ -531,13 +611,9 @@ export async function handleBulkImageTranslation(button, langCode) {
         if (button && document.body.contains(button)) button.innerHTML = html;
     };
 
-    if (activeBulkController) {
-        alert('O altă traducere bulk este deja în curs. Oprește-o întâi cu Force Stop.');
-        return false;
-    }
+    if (button && document.body.contains(button)) button.disabled = true;
 
     try {
-        langCode = (langCode || '').toLowerCase();
         const langName = (languages[langCode] || '').toLowerCase();
         if (!langName) throw new Error(`Cod limbă invalid: ${langCode}`);
 
@@ -548,13 +624,10 @@ export async function handleBulkImageTranslation(button, langCode) {
 
         const distinctAsins = [...new Set((cmd.products || []).map(p => p.asin).filter(Boolean))];
         if (distinctAsins.length === 0) {
-            alert('Nu există produse în această comandă.');
-            return false;
+            return { aborted: false, okCount: 0, failCount: 0, abortedCount: 0, timedOutCount: 0, notSent: 0, message: 'no-products' };
         }
 
-        button.disabled = true;
         safeSetText(`Se încarcă detalii... (${langCode.toUpperCase()})`);
-
         const details = await fetchProductDetailsInBulk(distinctAsins);
 
         const tasks = [];
@@ -586,28 +659,15 @@ export async function handleBulkImageTranslation(button, langCode) {
         }
 
         if (tasks.length === 0) {
-            alert(
-                `Nimic de tradus pentru ${langCode.toUpperCase()}.\n` +
-                `Deja traduse: ${skippedAlready.length}\n` +
-                `Titlu/descriere prea scurte: ${skippedTooShort.length}\n` +
-                `Sub ${MIN_IMAGES} imagini: ${skippedFewImages.length}`
-            );
-            return false;
+            console.log(`${langCode.toUpperCase()} — nimic de tradus`, {
+                skippedAlready: skippedAlready.length,
+                skippedTooShort: skippedTooShort.length,
+                skippedFewImages: skippedFewImages.length,
+            });
+            return { aborted: false, okCount: 0, failCount: 0, abortedCount: 0, timedOutCount: 0, notSent: 0, message: 'nothing-to-translate' };
         }
 
         const totalBatches = Math.ceil(tasks.length / BATCH_SIZE);
-        const confirmMsg =
-            `Se vor trimite ${tasks.length} cereri de traducere completă (titlu+descriere+imagini) pentru ${langCode.toUpperCase()}\n` +
-            `(${totalBatches} batch-uri × max ${BATCH_SIZE}, fiecare batch așteaptă răspunsul complet înainte de următorul).\n\n` +
-            `Deja traduse (omise): ${skippedAlready.length}\n` +
-            `Titlu/descriere prea scurte (omise): ${skippedTooShort.length}\n` +
-            `Sub ${MIN_IMAGES} imagini (omise): ${skippedFewImages.length}\n\n` +
-            `Continuați?`;
-        if (!confirm(confirmMsg)) return false;
-
-        const controller = new AbortController();
-        activeBulkController = controller;
-
         const allResults = [];
         let aborted = false;
 
@@ -617,34 +677,43 @@ export async function handleBulkImageTranslation(button, langCode) {
             const batch = tasks.slice(i, i + BATCH_SIZE);
             const batchIdx = Math.floor(i / BATCH_SIZE) + 1;
 
-            safeSetText(`Batch ${batchIdx}/${totalBatches} (${langCode.toUpperCase()}) — ${batch.length} în zbor...`);
+            safeSetText(`${langCode.toUpperCase()} batch ${batchIdx}/${totalBatches} — ${batch.length} în zbor...`);
 
-            const batchPromises = batch.map(t =>
-                fetch(TRANSLATION_WEBHOOK_URL, {
+            const batchPromises = batch.map(t => {
+                // Combină semnalul de chain cu timeout per-cerere (15 min).
+                const timeoutSignal = AbortSignal.timeout(REQUEST_TIMEOUT_MS);
+                const combinedSignal = AbortSignal.any([controller.signal, timeoutSignal]);
+
+                return fetch(TRANSLATION_WEBHOOK_URL, {
                     method: 'POST',
-                    signal: controller.signal,
+                    signal: combinedSignal,
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         asin: t.asin,
                         language: t.language,
                         title: t.title,
                         description: t.description,
-                        images: t.images
-                    })
+                        images: t.images,
+                    }),
                 })
-                .then(async r => ({
-                    ok: r.ok,
-                    asin: t.asin,
-                    status: r.status,
-                    body: await r.json().catch(() => null)
-                }))
-                .catch(e => ({
-                    ok: false,
-                    asin: t.asin,
-                    aborted: e.name === 'AbortError',
-                    error: e.message
-                }))
-            );
+                    .then(async r => ({
+                        ok: r.ok,
+                        asin: t.asin,
+                        status: r.status,
+                        body: await r.json().catch(() => null),
+                    }))
+                    .catch(e => {
+                        const userAborted = controller.signal.aborted;
+                        const timedOut = timeoutSignal.aborted && !userAborted;
+                        return {
+                            ok: false,
+                            asin: t.asin,
+                            aborted: userAborted,
+                            timedOut,
+                            error: e.message,
+                        };
+                    });
+            });
 
             const batchResults = await Promise.all(batchPromises);
             allResults.push(...batchResults);
@@ -654,29 +723,33 @@ export async function handleBulkImageTranslation(button, langCode) {
 
         const okCount = allResults.filter(r => r.ok).length;
         const abortedCount = allResults.filter(r => r.aborted).length;
+        const timedOutCount = allResults.filter(r => r.timedOut).length;
         const failCount = allResults.length - okCount - abortedCount;
         const notSent = tasks.length - allResults.length;
 
-        const failedAsins = allResults.filter(r => !r.ok && !r.aborted).map(r => r.asin);
+        const failedAsins = allResults
+            .filter(r => !r.ok && !r.aborted && !r.timedOut)
+            .map(r => r.asin);
+        const timedOutAsins = allResults.filter(r => r.timedOut).map(r => r.asin);
+
         console.log(`Bulk translate ${langCode.toUpperCase()} — rezultat:`, {
-            okCount, failCount, abortedCount, notSent, failedAsins, results: allResults
+            okCount, failCount, abortedCount, timedOutCount, notSent,
+            skippedAlready: skippedAlready.length,
+            skippedTooShort: skippedTooShort.length,
+            skippedFewImages: skippedFewImages.length,
+            failedAsins,
+            timedOutAsins,
+            results: allResults,
         });
 
-        alert(
-            (aborted ? `⛔ Oprit de utilizator (${langCode.toUpperCase()}):\n` : `Traducere ${langCode.toUpperCase()} finalizată:\n`) +
-            `✓ ${okCount} OK\n` +
-            `✗ ${failCount} eșuate\n` +
-            (abortedCount ? `⏹ ${abortedCount} anulate în zbor\n` : '') +
-            (notSent ? `⊘ ${notSent} nelansate\n` : '') +
-            (failedAsins.length ? `\nASIN-uri eșuate (vezi console):\n${failedAsins.slice(0, 10).join(', ')}${failedAsins.length > 10 ? '…' : ''}` : '')
-        );
-        return !aborted;
+        return { aborted, okCount, failCount, abortedCount, timedOutCount, notSent };
     } catch (error) {
-        console.error('Eroare bulk translate:', error);
-        alert(`Eroare: ${error.message}`);
-        return false;
+        console.error(`Eroare bulk ${langCode.toUpperCase()}:`, error);
+        return {
+            aborted: false, okCount: 0, failCount: 0, abortedCount: 0, timedOutCount: 0, notSent: 0,
+            error: error.message,
+        };
     } finally {
-        activeBulkController = null;
         if (button && document.body.contains(button)) {
             button.disabled = false;
             button.innerHTML = originalText;
