@@ -8,6 +8,10 @@ export const READY_TO_LIST_WEBHOOK_URL = `${BASE}/124682e2-5f91-4c0a-adf6-4cedf1
 export const TRANSLATION_WEBHOOK_URL = `${BASE}/v2-multilang-generate`;
 export const DESCRIPTION_GENERATION_WEBHOOK_URL = `${BASE}/v2-remake-description`;
 export const IMAGE_TRANSLATION_WEBHOOK_URL = `${BASE}/v2-image-translation`;
+// Endpoint direct al modulului de image translation (Railway) — folosit de bulk flow
+// pentru produse care au deja traducere textuală dar le lipsesc imaginile traduse.
+// Ocolește n8n ca să evite aglomerarea cozii.
+export const IMAGE_TRANSLATION_DIRECT_URL = 'https://image-translation-module-production.up.railway.app/v2-image-translation';
 
 export const CATEGORY_ATTRIBUTES_WEBHOOK_URL = `${BASE}/v2-category-attributes`;
 export const AI_FILL_ATTRIBUTES_WEBHOOK_URL = `${BASE}/v2-ai-fill-attributes`;

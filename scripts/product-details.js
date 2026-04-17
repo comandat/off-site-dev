@@ -6,6 +6,7 @@ import {
     TITLE_GENERATION_WEBHOOK_URL,
     TRANSLATION_WEBHOOK_URL,
     IMAGE_TRANSLATION_WEBHOOK_URL,
+    IMAGE_TRANSLATION_DIRECT_URL,
     DESCRIPTION_GENERATION_WEBHOOK_URL,
     CATEGORY_ATTRIBUTES_WEBHOOK_URL,
     AI_FILL_ATTRIBUTES_WEBHOOK_URL,
@@ -577,6 +578,9 @@ export async function handleBulkImageTranslation(button, langCode) {
     const stoppedEarly = controller.signal.aborted;
     const body = chainSummary.length
         ? chainSummary.map(s => {
+              const breakdown = (s.fullCount || s.imagesOnlyCount)
+                  ? ` [full ${s.fullOk || 0}/${s.fullCount || 0}, imgs-only ${s.imagesOnlyOk || 0}/${s.imagesOnlyCount || 0}]`
+                  : '';
               const parts = [
                   `${s.lang.toUpperCase()}:`,
                   `✓${s.okCount}`,
@@ -588,7 +592,7 @@ export async function handleBulkImageTranslation(button, langCode) {
                   s.message === 'nothing-to-translate' ? '(nimic de tradus)' : null,
                   s.error ? `(eroare: ${s.error})` : null,
               ].filter(Boolean);
-              return parts.join(' ');
+              return parts.join(' ') + breakdown;
           }).join('\n')
         : '(nicio limbă rulată)';
 
@@ -630,6 +634,11 @@ async function runSingleLangBulk({ button, langCode, controller }) {
         safeSetText(`Se încarcă detalii... (${langCode.toUpperCase()})`);
         const details = await fetchProductDetailsInBulk(distinctAsins);
 
+        // Trei categorii per limbă:
+        // - FULL: nu există traducere textuală → apelează v2-multilang-generate (text + imagini).
+        // - IMAGES-ONLY: există traducere (title + description) dar lipsesc imaginile traduse
+        //   → apelează direct modulul de image-translation pe Railway, payload [{ asin, lang, images }].
+        // - SKIP: traducere completă (text + imagini) deja existentă.
         const tasks = [];
         const skippedAlready = [];
         const skippedTooShort = [];
@@ -639,13 +648,28 @@ async function runSingleLangBulk({ button, langCode, controller }) {
             const d = details[asin];
             if (!d) { skippedTooShort.push(asin); continue; }
 
-            const existing = Object.keys(d.other_versions || {}).map(k => k.toLowerCase());
-            if (existing.includes(langName)) { skippedAlready.push(asin); continue; }
-
             const title = (d.title || '').trim();
             const description = (d.description || '').trim();
             const images = cleanImages(d.images);
 
+            const langKey = Object.keys(d.other_versions || {}).find(k => k.toLowerCase() === langName);
+            const tr = langKey ? d.other_versions[langKey] : null;
+            const hasText = !!(tr && (tr.title || '').trim().length > 0 && (tr.description || '').trim().length > 0);
+            const hasTrImages = !!(tr && cleanImages(tr.images).length > 0);
+
+            if (hasText && hasTrImages) {
+                skippedAlready.push(asin);
+                continue;
+            }
+
+            if (hasText && !hasTrImages) {
+                // Doar imaginile lipsesc — apel independent către modulul Railway.
+                if (images.length === 0) { skippedFewImages.push(asin); continue; }
+                tasks.push({ type: 'images-only', asin, lang: langCode, images: images.slice(0, 5) });
+                continue;
+            }
+
+            // Fără text (sau cu traducere incompletă textual) → traducere completă.
             if (title.length < MIN_TITLE || description.length < MIN_DESC) {
                 skippedTooShort.push(asin);
                 continue;
@@ -654,9 +678,11 @@ async function runSingleLangBulk({ button, langCode, controller }) {
                 skippedFewImages.push(asin);
                 continue;
             }
-
-            tasks.push({ asin, language: langCode, title, description, images });
+            tasks.push({ type: 'full', asin, language: langCode, title, description, images });
         }
+
+        const fullCount = tasks.filter(t => t.type === 'full').length;
+        const imagesOnlyCount = tasks.filter(t => t.type === 'images-only').length;
 
         if (tasks.length === 0) {
             console.log(`${langCode.toUpperCase()} — nimic de tradus`, {
@@ -664,7 +690,7 @@ async function runSingleLangBulk({ button, langCode, controller }) {
                 skippedTooShort: skippedTooShort.length,
                 skippedFewImages: skippedFewImages.length,
             });
-            return { aborted: false, okCount: 0, failCount: 0, abortedCount: 0, timedOutCount: 0, notSent: 0, message: 'nothing-to-translate' };
+            return { aborted: false, okCount: 0, failCount: 0, abortedCount: 0, timedOutCount: 0, notSent: 0, fullCount: 0, imagesOnlyCount: 0, message: 'nothing-to-translate' };
         }
 
         const totalBatches = Math.ceil(tasks.length / BATCH_SIZE);
@@ -684,21 +710,25 @@ async function runSingleLangBulk({ button, langCode, controller }) {
                 const timeoutSignal = AbortSignal.timeout(REQUEST_TIMEOUT_MS);
                 const combinedSignal = AbortSignal.any([controller.signal, timeoutSignal]);
 
-                return fetch(TRANSLATION_WEBHOOK_URL, {
+                // Dispatch pe tip:
+                //  - 'full'        → TRANSLATION_WEBHOOK_URL (v2-multilang-generate), body = obiect
+                //  - 'images-only' → IMAGE_TRANSLATION_DIRECT_URL (Railway direct), body = array [{asin,lang,images}]
+                const isFull = t.type === 'full';
+                const url = isFull ? TRANSLATION_WEBHOOK_URL : IMAGE_TRANSLATION_DIRECT_URL;
+                const body = isFull
+                    ? { asin: t.asin, language: t.language, title: t.title, description: t.description, images: t.images }
+                    : [{ asin: t.asin, lang: t.lang, images: t.images }];
+
+                return fetch(url, {
                     method: 'POST',
                     signal: combinedSignal,
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        asin: t.asin,
-                        language: t.language,
-                        title: t.title,
-                        description: t.description,
-                        images: t.images,
-                    }),
+                    body: JSON.stringify(body),
                 })
                     .then(async r => ({
                         ok: r.ok,
                         asin: t.asin,
+                        type: t.type,
                         status: r.status,
                         body: await r.json().catch(() => null),
                     }))
@@ -708,6 +738,7 @@ async function runSingleLangBulk({ button, langCode, controller }) {
                         return {
                             ok: false,
                             asin: t.asin,
+                            type: t.type,
                             aborted: userAborted,
                             timedOut,
                             error: e.message,
@@ -727,6 +758,9 @@ async function runSingleLangBulk({ button, langCode, controller }) {
         const failCount = allResults.length - okCount - abortedCount;
         const notSent = tasks.length - allResults.length;
 
+        const fullOk = allResults.filter(r => r.ok && r.type === 'full').length;
+        const imagesOnlyOk = allResults.filter(r => r.ok && r.type === 'images-only').length;
+
         const failedAsins = allResults
             .filter(r => !r.ok && !r.aborted && !r.timedOut)
             .map(r => r.asin);
@@ -734,6 +768,7 @@ async function runSingleLangBulk({ button, langCode, controller }) {
 
         console.log(`Bulk translate ${langCode.toUpperCase()} — rezultat:`, {
             okCount, failCount, abortedCount, timedOutCount, notSent,
+            fullCount, imagesOnlyCount, fullOk, imagesOnlyOk,
             skippedAlready: skippedAlready.length,
             skippedTooShort: skippedTooShort.length,
             skippedFewImages: skippedFewImages.length,
@@ -742,7 +777,7 @@ async function runSingleLangBulk({ button, langCode, controller }) {
             results: allResults,
         });
 
-        return { aborted, okCount, failCount, abortedCount, timedOutCount, notSent };
+        return { aborted, okCount, failCount, abortedCount, timedOutCount, notSent, fullCount, imagesOnlyCount, fullOk, imagesOnlyOk };
     } catch (error) {
         console.error(`Eroare bulk ${langCode.toUpperCase()}:`, error);
         return {
